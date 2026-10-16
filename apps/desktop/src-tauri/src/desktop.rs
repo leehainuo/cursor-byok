@@ -32,11 +32,50 @@ use crate::tray;
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 const AUTOSTART_ARG: &str = "--autostart";
 
-struct DesktopRuntime {
+pub(crate) struct DesktopRuntime {
     shutdown: CancellationToken,
     server: Mutex<Option<JoinHandle<Result<()>>>>,
     exiting: AtomicBool,
     server_addr: std::net::SocketAddr,
+    show_dock_icon: AtomicBool,
+}
+
+impl DesktopRuntime {
+    pub(crate) fn show_dock_icon(&self) -> bool {
+        self.show_dock_icon.load(Ordering::Acquire)
+    }
+}
+
+#[tauri::command]
+fn set_dock_icon_visible(app: AppHandle, visible: bool) {
+    app.state::<DesktopRuntime>()
+        .show_dock_icon
+        .store(visible, Ordering::Release);
+    #[cfg(target_os = "macos")]
+    apply_dock_icon_visibility(&app, visible);
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) {
+    if visible {
+        if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+            tracing::warn!(%error, "failed to show the Dock icon");
+        }
+        return;
+    }
+
+    let window_visible = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if !window_visible {
+        if let Err(error) = app.hide() {
+            tracing::warn!(%error, "failed to resign active state before hiding the Dock icon");
+        }
+    }
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+        tracing::warn!(%error, "failed to hide the Dock icon");
+    }
 }
 
 #[tauri::command]
@@ -144,6 +183,10 @@ fn create_main_window(
 
 /// 按需打开主窗口:webview 仅在需要界面时创建,关闭窗口即销毁释放内存。
 pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    if app.state::<DesktopRuntime>().show_dock_icon() {
+        apply_dock_icon_visibility(app, true);
+    }
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
@@ -197,6 +240,7 @@ pub fn run() -> ExitCode {
             open_terminal_with_command,
             crate::update::check_portable_update,
             crate::update::install_portable_update,
+            set_dock_icon_visible,
         ])
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == AUTOSTART_ARG) {
@@ -239,8 +283,9 @@ pub fn run() -> ExitCode {
                 tauri::async_runtime::block_on(server.store().desktop_settings())
                     .unwrap_or_default();
             #[cfg(target_os = "macos")]
-            app.handle()
-                .set_dock_visibility(desktop_settings.show_dock_icon)?;
+            if !desktop_settings.show_dock_icon {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
             let shutdown = CancellationToken::new();
             let server_shutdown = shutdown.clone();
             let app_handle = app.handle().clone();
@@ -257,6 +302,7 @@ pub fn run() -> ExitCode {
                 server: Mutex::new(Some(task)),
                 exiting: AtomicBool::new(false),
                 server_addr: address,
+                show_dock_icon: AtomicBool::new(desktop_settings.show_dock_icon),
             });
             if desktop_settings.silent_start && started_by_autostart {
                 tracing::info!("silent autostart enabled; starting without the main window");
@@ -277,6 +323,17 @@ pub fn run() -> ExitCode {
     };
 
     app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } if label == MAIN_WINDOW_LABEL => {
+            let runtime = app.state::<DesktopRuntime>();
+            if !runtime.show_dock_icon() {
+                apply_dock_icon_visibility(app, false);
+            }
+        }
         // code 为 None 表示所有窗口已被关闭(轻量模式),阻止退出,
         // 转发服务继续在托盘后台运行;code 为 Some 时是显式退出请求。
         RunEvent::ExitRequested { code, api, .. } => match code {
