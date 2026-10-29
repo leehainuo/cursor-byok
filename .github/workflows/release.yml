@@ -183,7 +183,7 @@ jobs:
 
           installer="cursor-byok-${VERSION}-macos-${arch}.dmg"
           cp "${dmgs[0]}" "${installer}"
-          gh release upload "v${VERSION}" "${installer}"
+          gh release upload "v${VERSION}" "${installer}" --clobber
 
       - name: Package and sign Windows portable update
         if: matrix.platform == 'windows-x86_64'
