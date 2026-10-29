@@ -18,6 +18,7 @@ impl CheckpointBuilder {
         summary: &str,
         presentation: &PendingSteps,
     ) -> Result<pb::ConversationStateStructure> {
+        self.project_files(presentation).await?;
         let summarized = self
             .base
             .root_prompt_messages_json
