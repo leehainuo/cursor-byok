@@ -11,6 +11,10 @@ const tauri = json("apps/desktop/src-tauri/tauri.conf.json");
 const version = desktop.version;
 
 assert.match(version, /^\d+\.\d+\.\d+$/, "desktop version must be stable SemVer");
+assert.ok(
+  read(`.github/release-notes/${version}.md`).startsWith(`# Cursor BYOK v${version}\n`),
+  "release notes must exist and match the desktop version",
+);
 for (const [name, actual] of Object.entries({
   "package-lock.json": lock.version,
   "package-lock.json root package": lock.packages[""].version,
