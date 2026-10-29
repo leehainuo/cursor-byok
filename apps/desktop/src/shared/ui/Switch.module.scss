@@ -1,0 +1,28 @@
+.root {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  transition: background 160ms ease;
+
+  &[data-checked] { background: var(--vscode-button-background); }
+  &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+  &:disabled { opacity: 0.5; }
+
+  span {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--vscode-button-foreground);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+    transition: transform 160ms ease;
+  }
+
+  &[data-checked] span { transform: translateX(16px); }
+}

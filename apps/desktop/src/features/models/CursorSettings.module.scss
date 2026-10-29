@@ -1,0 +1,357 @@
+@use "../../styles/typography" as type;
+
+.page {
+  display: grid;
+  gap: 16px;
+}
+
+.takeoverActions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.takeoverStatus {
+  min-width: 39px;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.groupActions {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+
+  button {
+    height: 25px;
+    padding: 0 8px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--vscode-sideBar-border);
+    font-size: type.$font-size-xs;
+    white-space: nowrap;
+
+    &:last-child { border-right: 0; }
+    &:hover:not(:disabled) { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+    &[aria-pressed="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+}
+
+.gateActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gate {
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  border: 1px dashed var(--vscode-sideBar-border);
+  border-radius: var(--oa-overlay-radius);
+  strong {
+    color: var(--vscode-foreground);
+    font-size: type.$font-size-base;
+  }
+  span {
+    max-width: 440px;
+    font-size: type.$font-size-xs;
+  }
+  button {
+    margin-top: 6px;
+  }
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+
+}
+.modelGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 10px;
+}
+.groupCard {
+  padding: 4px 12px 8px;
+}
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.groupSettings {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  color: var(--vscode-descriptionForeground);
+  background: none;
+  border: none;
+  font-size: type.$font-size-xs;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { color: var(--vscode-foreground); }
+}
+.groupChevron {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+  color: var(--vscode-foreground);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.groupToggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 2px;
+  color: var(--vscode-foreground);
+  background: none;
+  border: none;
+  font-size: type.$font-size-base;
+  cursor: pointer;
+}
+.groupLabel {
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modelList {
+  display: flex;
+  flex-direction: column;
+}
+.modelRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--vscode-sideBar-border);
+}
+.modelRowName {
+  min-width: 0;
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .modelRowNameText,
+  .modelRowModelId {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modelRowNameText {
+    color: var(--vscode-foreground);
+    font-size: type.$font-size-base;
+  }
+  .modelRowModelId {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-2xs;
+  }
+}
+.modelCard {
+  position: relative;
+  padding: 16px;
+}
+.modelCardContent {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+.modelCardTop {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.modelCardName {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .modelCardNameText,
+  .modelCardModelId {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modelCardNameText {
+    color: var(--vscode-foreground);
+    font-size: type.$font-size-base;
+  }
+  .modelCardModelId {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-2xs;
+  }
+}
+.modelTypeBadge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 999px;
+  font-size: type.$font-size-2xs;
+}
+.modelCardTest {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+}
+.modelCardActions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 8px;
+
+  // 空间不足时按钮收缩显示省略号,而不是换行。
+  > button {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+}
+.deleteButton:hover {
+  color: var(--vscode-errorForeground, #f48771);
+}
+.sortHandle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: transparent;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 160ms ease, color 160ms ease, border-color 160ms ease, background-color 160ms ease;
+
+  &:focus-visible,
+  .modelCard:hover & {
+    color: var(--vscode-foreground);
+    background: var(--vscode-list-hoverBackground);
+    border-color: var(--vscode-sideBar-border);
+    opacity: 1;
+  }
+  &:active {
+    cursor: grabbing;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
+  }
+}
+.sortGhost {
+  opacity: 0.4;
+}
+.sortChosen {
+  border-color: var(--vscode-focusBorder);
+}
+.sortDragging {
+  cursor: grabbing;
+}
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.command {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: var(--vscode-textLink-foreground);
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.fullWidth {
+  width: 100%;
+  grid-column: 1 / -1;
+}
+.discoverButton {
+  min-height: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+}
+.urlField {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.switches {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  label {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.jsonOption {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  > label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .fullWidth {
+    grid-column: auto;
+  }
+}

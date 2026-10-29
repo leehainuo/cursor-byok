@@ -1,0 +1,16 @@
+.shell {
+  --app-edge: 8px;
+  --app-menu-width: 204px;
+  --window-safe-top: var(--window-header-height);
+  --window-menu-top: var(--window-safe-top);
+  --window-corner-safe-bottom: 0px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+}
+
+.windows {
+  --window-corner-safe-bottom: 6px;
+}

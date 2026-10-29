@@ -1,0 +1,214 @@
+@use "../../styles/typography" as type;
+
+.target {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 5px;
+
+  &:focus-within,
+  &[data-open] { border-color: var(--vscode-focusBorder); }
+  &[data-disabled] { opacity: 0.55; }
+}
+
+.trigger {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--vscode-input-foreground);
+  background: transparent;
+  border: 0;
+  font-size: type.$font-size-xs;
+  text-align: left;
+}
+
+.clear {
+  width: 30px;
+  height: 100%;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 0;
+
+  &:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+}
+
+.summary {
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu {
+  position: fixed;
+  z-index: 14001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 4px;
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: var(--oa-overlay-radius);
+  box-shadow: var(--oa-dropdown-shadow);
+}
+
+.listFrame,
+.list {
+  min-height: 32px;
+  min-width: 0;
+}
+
+.listFrame {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.group,
+.groupLabel {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  font-weight: 600;
+}
+
+.group {
+  gap: 8px;
+  padding: 7px 8px 3px;
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &:has(input:focus-visible) .checkbox {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+}
+
+.groupLabel {
+  padding: 7px 8px 3px;
+}
+
+.optionRow {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 32px;
+  box-sizing: border-box;
+  color: var(--vscode-dropdown-foreground);
+  background: transparent;
+  border-radius: 4px;
+  font-size: type.$font-size-xs;
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &:hover {
+    color: var(--vscode-list-hoverForeground, var(--vscode-dropdown-foreground));
+    background: var(--vscode-list-hoverBackground);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+  }
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: var(--vscode-checkbox-foreground, var(--vscode-button-foreground));
+  background: var(--vscode-checkbox-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-checkbox-border, var(--vscode-input-border));
+  border-radius: 3px;
+}
+
+.optionRow:has(input:checked) .checkbox,
+.group:has(input:checked) .checkbox,
+.checkbox[data-indeterminate] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
+}
+
+.checkbox[data-indeterminate]::after {
+  width: 8px;
+  height: 2px;
+  content: "";
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.option {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: type.$font-size-xs; }
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--vscode-dropdown-border);
+
+  button {
+    width: auto;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    color: var(--vscode-textLink-foreground);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    font-size: type.$font-size-xs;
+
+    &:hover { background: var(--vscode-list-hoverBackground); }
+  }
+}

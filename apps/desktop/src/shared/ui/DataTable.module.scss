@@ -1,0 +1,108 @@
+@use "../../styles/typography" as type;
+
+.root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tableRegion {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: var(--oa-card-radius);
+}
+
+.viewport {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tableViewport {
+  overflow-x: auto;
+}
+
+.tableContent {
+  width: max-content;
+  min-width: 100%;
+}
+
+.emptyViewport {
+  min-height: 0;
+}
+
+.emptyState {
+  position: absolute;
+  z-index: 4;
+  inset: 33px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-base;
+  pointer-events: none;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: type.$font-size-base;
+
+  th,
+  td {
+    max-width: 220px;
+    height: 36px;
+    padding: 0 12px;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--vscode-sideBar-border);
+  }
+
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: 33px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-editor-background);
+    font-size: type.$font-size-xs;
+    font-weight: 400;
+  }
+
+  tbody tr:hover td {
+    background: var(--vscode-list-hoverBackground);
+  }
+}
+
+.stickyRight {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  width: 72px;
+  min-width: 72px;
+  background: var(--vscode-editor-background);
+}
+
+thead .stickyRight {
+  z-index: 3;
+}
+
+tbody .stickyRight {
+  background: var(--vscode-editorWidget-background);
+}

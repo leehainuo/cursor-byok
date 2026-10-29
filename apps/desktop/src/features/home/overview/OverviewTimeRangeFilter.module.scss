@@ -1,0 +1,97 @@
+@use "../../../styles/typography" as type;
+
+.root,
+.presets {
+  display: flex;
+  align-items: center;
+}
+
+.filterRow { width: 100%; }
+
+.root {
+  gap: 3px;
+}
+
+.presets {
+  overflow: hidden;
+  // border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+
+  button {
+    height: 25px;
+    padding: 0 8px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--vscode-sideBar-border);
+    font-size: type.$font-size-xs;
+    white-space: nowrap;
+
+    &:last-child { border-right: 0; }
+    &:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+    &[aria-pressed="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
+  }
+}
+
+.popover {
+  position: fixed;
+  z-index: 14000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: var(--oa-overlay-radius);
+  box-shadow: var(--oa-dropdown-shadow);
+  overflow: visible;
+
+  label {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+
+  input {
+    min-width: 0;
+    height: 32px;
+    padding: 0 8px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 5px;
+    outline: none;
+    font: inherit;
+
+    &:focus { border-color: var(--vscode-focusBorder); }
+  }
+}
+
+.popoverActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.quickPresets {
+  display: flex;
+  gap: 6px;
+
+  button {
+    height: 26px;
+    padding: 0 10px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    border: 1px solid var(--vscode-sideBar-border);
+    border-radius: 4px;
+    font-size: type.$font-size-xs;
+    white-space: nowrap;
+
+    &:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+    &[aria-pressed="true"] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); border-color: transparent; }
+  }
+}

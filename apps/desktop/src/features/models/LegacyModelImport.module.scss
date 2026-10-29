@@ -1,0 +1,92 @@
+@use "../../styles/typography" as type;
+
+.content {
+  display: grid;
+  gap: 14px;
+}
+
+.source {
+  display: grid;
+  gap: 6px;
+
+  code {
+    overflow-wrap: anywhere;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+
+  > div {
+    display: grid;
+    gap: 3px;
+    padding: 10px;
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 5px;
+  }
+
+  small {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.models {
+  display: grid;
+  gap: 6px;
+}
+
+.model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: var(--vscode-list-inactiveSelectionBackground);
+  border-radius: 5px;
+
+  > div {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  small {
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > span {
+    flex: 0 0 auto;
+    font-size: type.$font-size-xs;
+  }
+}
+
+.new {
+  color: var(--vscode-testing-iconPassed, #73c991);
+}
+
+.existing,
+.hint {
+  color: var(--vscode-descriptionForeground);
+}
+
+.hint {
+  font-size: type.$font-size-xs;
+}
+
+@media (max-width: 680px) {
+  .model {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

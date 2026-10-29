@@ -1,0 +1,15 @@
+.icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+
+  img {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+}

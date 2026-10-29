@@ -1,0 +1,14 @@
+# Reproducible performance and retrieval-quality benchmark for Semble.
+[package]
+name = "semble-benchmark"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+semble-core = { path = "../../../crates/semble-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

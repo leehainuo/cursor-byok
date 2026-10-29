@@ -1,0 +1,38 @@
+@use "../../styles/typography" as type;
+
+.root {
+  position: fixed;
+  z-index: 15000;
+  max-width: 420px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 8px 10px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background);
+  border: 1px solid var(--vscode-editorHoverWidget-border);
+  border-radius: var(--oa-overlay-radius);
+  box-shadow: var(--oa-tooltip-shadow);
+  font-size: type.$font-size-xs;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(0, 0, 0, 0.25)) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(0, 0, 0, 0.25));
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(0, 0, 0, 0.4));
+  }
+}

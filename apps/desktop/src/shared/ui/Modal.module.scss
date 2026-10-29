@@ -1,0 +1,78 @@
+@use "../../styles/typography" as type;
+
+.mask {
+  position: fixed;
+  z-index: 13000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--window-header-height) 24px 24px;
+  background: rgb(0 0 0 / 52%);
+}
+
+.dragLayer {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--window-header-height);
+}
+
+.dialog {
+  position: relative;
+  z-index: 1;
+  width: min(620px, calc(100vw - 48px));
+  max-height: calc(100vh - var(--window-header-height) - 24px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border);
+  border-radius: var(--oa-overlay-radius);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 45%);
+
+  header {
+    flex: 0 0 auto;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--vscode-editorWidget-border);
+    font-size: type.$font-size-base;
+    font-weight: 630;
+  }
+  footer {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--vscode-editorWidget-border);
+  }
+}
+
+.wide {
+  width: min(1080px, calc(100vw - 48px));
+}
+
+.compact {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.fullHeight {
+  height: calc(100vh - var(--window-header-height) - 24px);
+}
+
+.banner {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.bodyContent {
+  padding: 18px;
+}

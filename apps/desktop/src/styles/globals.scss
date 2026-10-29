@@ -1,0 +1,96 @@
+@use "./typography" as type;
+@use "./themes";
+
+@font-face {
+  font-family: "PingFang-Medium";
+  src: url("../shared/assets/fonts/PingFang-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "HFKos";
+  src: url("../shared/assets/fonts/HFKos-R.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --window-header-height: 30px;
+  --oa-ui-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --oa-code-font: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --oa-metrics-font: "PingFang-Medium", var(--oa-ui-font);
+  --oa-number-font: "HFKos", "PingFang-Medium", var(--oa-ui-font);
+  font-family: var(--oa-ui-font);
+  font-size: type.$font-size-base;
+  color: var(--vscode-foreground);
+  background: transparent;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  color: var(--vscode-editor-selectionForeground);
+  background: var(--vscode-editor-selectionBackground);
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+.scroll-shadow-top[data-scrolled="true"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--app-content-top) ,
+    black 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--app-content-top),
+    black 100%
+  );
+}
+
+.scroll-shadow-bottom {
+  --scroll-shadow-bottom-size: 16px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black 0,
+    black calc(100% - var(--scroll-shadow-bottom-size)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    black 0,
+    black calc(100% - var(--scroll-shadow-bottom-size)),
+    transparent 100%
+  );
+}

@@ -1,0 +1,47 @@
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, rgba(255, 255, 255, 0.7));
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--vscode-editorWidget-border, rgba(255, 255, 255, 0.16));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--vscode-focusBorder, #49b0ff);
+  }
+
+  &.active {
+    border-color: var(--vscode-focusBorder, #49b0ff);
+    color: var(--vscode-focusBorder, #49b0ff);
+  }
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: contain;
+}

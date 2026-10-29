@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cursor BYOK Frontend"
+  short_description: "Build consistent React desktop layouts and virtualized pages"
+  default_prompt: "Use $frontend to implement or review the Cursor BYOK React desktop interface."

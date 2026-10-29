@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html,
+      body,
+      #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: var(--boot-bg, #141414);
+      }
+    </style>
+    <script>
+      // 在应用样式加载前按主题参数铺底色，避免切换 poster 时闪出错误颜色
+      (function () {
+        var light = new URLSearchParams(location.search).get("theme") === "default-light";
+        document.documentElement.style.setProperty("--boot-bg", light ? "#f5f5f5" : "#141414");
+        var meta = document.createElement("meta");
+        meta.name = "theme-color";
+        meta.content = light ? "#f5f5f5" : "#141414";
+        document.head.appendChild(meta);
+      })();
+    </script>
+    <title>Cursor BYOK 产品演示</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/src/demo/index.tsx" type="module"></script>
+  </body>
+</html>

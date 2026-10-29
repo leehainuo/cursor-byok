@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Release"
+  short_description: "Prepare, authorize, publish, and verify desktop releases"
+  default_prompt: "Use $release to prepare and verify a Cursor BYOK desktop release."

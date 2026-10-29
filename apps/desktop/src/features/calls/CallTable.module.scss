@@ -1,0 +1,12 @@
+@use "../../styles/typography" as type;
+
+.status {
+  padding: 3px 7px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+  border-radius: 99px;
+  font-size: type.$font-size-xs;
+}
+
+.completed { color: #56b870; }
+.failed { color: var(--vscode-errorForeground, #f48771); }

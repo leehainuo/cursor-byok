@@ -1,0 +1,13 @@
+.git
+.DS_Store
+**/.DS_Store
+**/node_modules
+**/target
+**/dist
+server/*.db
+server/*.db-shm
+server/*.db-wal
+docs
+logs
+*.tar
+*.zip

@@ -1,0 +1,34 @@
+@use "../../../styles/typography" as type;
+
+.root {
+  position: relative;
+  width: 200px;
+  max-width: 100%;
+  height: 82px;
+  overflow: hidden;
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+.chart {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 140px;
+  pointer-events: none;
+}
+
+.label {
+  position: absolute;
+  right: 0;
+  bottom: 10px;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  color: var(--vscode-foreground);
+  font-family: var(--oa-number-font);
+  font-size: type.$font-size-xl;
+  line-height: 1;
+  pointer-events: none;
+}

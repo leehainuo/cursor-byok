@@ -1,0 +1,57 @@
+@use "../../styles/typography" as type;
+
+.region {
+  position: fixed;
+  z-index: 16000;
+  top: calc(48px + env(safe-area-inset-top));
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.message {
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 16px;
+  color: var(--vscode-notifications-foreground);
+  background: var(--vscode-notifications-background);
+  border: 1px solid var(--vscode-notifications-border);
+  border-radius: var(--oa-overlay-radius);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 38%);
+  font-size: type.$font-size-base;
+  line-height: 20px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+  animation: enter 200ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.leaving {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message {
+    animation: none;
+    transition: none;
+  }
+}

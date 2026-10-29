@@ -1,0 +1,31 @@
+@use "../../styles/typography" as type;
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px;
+
+  & + & {
+    border-top: 1px solid var(--vscode-widget-border);
+  }
+
+  > div {
+    display: grid;
+    gap: 5px;
+  }
+
+  small {
+    color: var(--vscode-descriptionForeground);
+    font-size: type.$font-size-xs;
+  }
+}
+
+.updateDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  background: #ef4444;
+  border-radius: 50%;
+}

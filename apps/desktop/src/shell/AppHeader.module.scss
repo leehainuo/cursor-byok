@@ -1,0 +1,49 @@
+@use "../styles/typography" as type;
+
+.root {
+  position: fixed;
+  z-index: 12000;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--window-header-height);
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.dragLayer {
+  position: absolute;
+  inset: 0;
+}
+
+.uiLayer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  padding-right: 0px;
+  pointer-events: none;
+}
+
+.identity {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--vscode-foreground);
+  font-size: type.$font-size-base;
+  font-weight: 500;
+  pointer-events: none;
+
+  img {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+  }
+}

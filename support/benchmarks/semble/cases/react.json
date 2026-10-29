@@ -1,0 +1,84 @@
+{
+  "_comment": "React benchmark ground truth pinned to one immutable upstream commit.",
+  "name": "react",
+  "repository": "https://github.com/react/react.git",
+  "commit": "eafeac097ba51e1eab809c07102126bd5f8e5425",
+  "queries": [
+    {
+      "id": "state-hook-api",
+      "query": "where is the public useState hook implemented",
+      "literal_query": "export function useState",
+      "symbol_query": "useState",
+      "expected": [{ "path": "packages/react/src/ReactHooks.js", "line": 66 }]
+    },
+    {
+      "id": "create-context",
+      "query": "create a React context object from a default value",
+      "literal_query": "REACT_CONTEXT_TYPE defaultValue ReactContext",
+      "symbol_query": "createContext",
+      "expected": [{ "path": "packages/react/src/ReactContext.js", "line": 14 }]
+    },
+    {
+      "id": "schedule-fiber-update",
+      "query": "schedule an update on a Fiber root",
+      "literal_query": "scheduleUpdateOnFiber FiberRoot fiber lane",
+      "symbol_query": "scheduleUpdateOnFiber",
+      "expected": [{ "path": "packages/react-reconciler/src/ReactFiberWorkLoop.js", "line": 987 }]
+    },
+    {
+      "id": "commit-root",
+      "query": "commit the finished React root and flush its effects",
+      "literal_query": "commitRoot root finishedWork lanes",
+      "symbol_query": "commitRoot",
+      "expected": [{ "path": "packages/react-reconciler/src/ReactFiberWorkLoop.js", "line": 3725 }]
+    },
+    {
+      "id": "suspense-begin-work",
+      "query": "update a Suspense component during Fiber begin work",
+      "literal_query": "updateSuspenseComponent workInProgress renderLanes",
+      "symbol_query": "updateSuspenseComponent",
+      "expected": [{ "path": "packages/react-reconciler/src/ReactFiberBeginWork.js", "line": 2383 }]
+    },
+    {
+      "id": "delegated-dom-events",
+      "query": "register delegated listeners for every supported DOM event",
+      "literal_query": "listeningMarker rootContainerElement EventTarget",
+      "symbol_query": "listenToAllSupportedEvents",
+      "expected": [{ "path": "packages/react-dom-bindings/src/events/DOMPluginEventSystem.js", "line": 432 }]
+    },
+    {
+      "id": "create-dom-root",
+      "query": "create a concurrent React DOM root",
+      "literal_query": "createRoot CreateRootOptions RootType container",
+      "symbol_query": "createRoot",
+      "expected": [
+        { "path": "packages/react-dom/src/client/ReactDOMRoot.js", "line": 171 },
+        { "path": "packages/react-dom/src/client/ReactDOMRootFB.js", "line": 131 }
+      ]
+    },
+    {
+      "id": "reconcile-keyed-array",
+      "query": "reconcile an array of keyed React children",
+      "literal_query": "reconcileChildrenArray currentFirstChild newChildren lanes",
+      "symbol_query": "reconcileChildrenArray",
+      "expected": [{ "path": "packages/react-reconciler/src/ReactChildFiber.js", "line": 1177 }]
+    },
+    {
+      "id": "dispatch-state-update",
+      "query": "dispatch a useState hook update",
+      "literal_query": "dispatchSetState fiber queue action",
+      "symbol_query": "dispatchSetState",
+      "expected": [{ "path": "packages/react-reconciler/src/ReactFiberHooks.js", "line": 3626 }]
+    },
+    {
+      "id": "hydrate-dom-root",
+      "query": "hydrate a server-rendered React DOM root",
+      "literal_query": "hydrateRoot initialChildren HydrateRootOptions",
+      "symbol_query": "hydrateRoot",
+      "expected": [
+        { "path": "packages/react-dom/src/client/ReactDOMRoot.js", "line": 276 },
+        { "path": "packages/react-dom/src/client/ReactDOMRootFB.js", "line": 148 }
+      ]
+    }
+  ]
+}

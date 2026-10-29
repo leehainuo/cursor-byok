@@ -1,0 +1,116 @@
+@mixin vscode-theme($tokens) {
+  @each $name, $value in $tokens {
+    --vscode-#{$name}: #{$value};
+  }
+}
+
+:root {
+  --oa-card-radius: 9px;
+  --oa-overlay-radius: 8px;
+}
+
+:root:not([data-platform="macos"]) {
+  --oa-card-radius: 7px;
+  --oa-overlay-radius: 6px;
+}
+
+:root,
+:root[data-theme="default-dark"] {
+  --oa-tooltip-shadow: 0 12px 32px rgb(0 0 0 / 30%);
+  --oa-dropdown-shadow: 0 12px 28px rgb(0 0 0 / 38%);
+
+  @include vscode-theme((
+    foreground: #ffffffe6,
+    errorForeground: #f53b3a,
+    descriptionForeground: #FFFFFFB3,
+    focusBorder: #49b0ff,
+    textLink-foreground: #49b0ff,
+    textCodeBlock-background: #2a2a2a,
+    editor-background: #141414,
+    editor-selectionBackground: #49b0ff33,
+    editor-selectionForeground: #ffffff,
+    editorCursor-foreground: #ffffff,
+    editorLineNumber-foreground: #ffffff40,
+    editorLineNumber-activeForeground: #ffffffe6,
+    editorWidget-background: #1f1f1f,
+    editorWidget-border: #ffffff0a,
+    editorHoverWidget-background: #1f1f1f,
+    editorHoverWidget-border: #ffffff0a,
+    editorHoverWidget-foreground: #ffffffe6,
+    sideBar-border: #ffffff0a,
+    list-activeSelectionBackground: #ffffff0d,
+    list-activeSelectionForeground: #ffffffe6,
+    list-hoverBackground: #2a2a2a,
+    input-background: #2a2a2a,
+    input-foreground: #ffffffe6,
+    input-border: #ffffff0a,
+    button-background: #4489ff,
+    button-foreground: #ffffff,
+    dropdown-background: #2a2a2a,
+    dropdown-foreground: #ffffffe6,
+    dropdown-border: #ffffff0a,
+    badge-background: #4489ff,
+    badge-foreground: #fffffff2,
+    scrollbarSlider-background: #ffffff14,
+    scrollbarSlider-hoverBackground: #ffffff1a,
+    scrollbarSlider-activeBackground: #ffffff26,
+    gitDecoration-addedResourceForeground: #00ec7e,
+    notifications-background: #1f1f1f,
+    notifications-foreground: #ffffffe6,
+    notifications-border: #ffffff14,
+    checkbox-background: #ffffff0d,
+    checkbox-foreground: #ffffff,
+    checkbox-border: #ffffff0a,
+  ));
+  color-scheme: dark;
+}
+
+:root[data-theme="default-light"] {
+  --oa-tooltip-shadow: 0 8px 22px rgb(0 0 0 / 12%);
+  --oa-dropdown-shadow: 0 8px 20px rgb(0 0 0 / 14%);
+
+  @include vscode-theme((
+    foreground: #191919,
+    errorForeground: #f53b3a,
+    descriptionForeground: #888888,
+    focusBorder: #317cff,
+    textLink-foreground: #317cff,
+    textCodeBlock-background: #f0f0f0,
+    editor-background: #f5f5f5,
+    editor-selectionBackground: #317cff40,
+    editor-selectionForeground: #191919,
+    editorCursor-foreground: #000000,
+    editorLineNumber-foreground: #1919194d,
+    editorLineNumber-activeForeground: #191919,
+    editorWidget-background: #ffffff,
+    editorWidget-border: #00000024,
+    editorHoverWidget-background: #ffffff,
+    editorHoverWidget-border: #00000024,
+    editorHoverWidget-foreground: #191919,
+    sideBar-border: #00000024,
+    list-activeSelectionBackground: #0000000f,
+    list-activeSelectionForeground: #191919,
+    list-hoverBackground: #f3f3f3,
+    input-background: #ffffff,
+    input-foreground: #191919,
+    input-border: #00000024,
+    button-background: #317cff,
+    button-foreground: #ffffff,
+    dropdown-background: #ffffff,
+    dropdown-foreground: #191919,
+    dropdown-border: #00000024,
+    badge-background: #317cff,
+    badge-foreground: #fffffff2,
+    scrollbarSlider-background: #00000014,
+    scrollbarSlider-hoverBackground: #1919191a,
+    scrollbarSlider-activeBackground: #19191926,
+    gitDecoration-addedResourceForeground: #00a558,
+    notifications-background: #ffffff,
+    notifications-foreground: #191919,
+    notifications-border: #00000024,
+    checkbox-background: #0000000f,
+    checkbox-foreground: #ffffff,
+    checkbox-border: #00000024,
+  ));
+  color-scheme: light;
+}

@@ -1,0 +1,77 @@
+@use "../../styles/typography" as type;
+
+.root {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: type.$font-size-xs;
+}
+
+.idle {
+  color: var(--vscode-descriptionForeground);
+  background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+}
+
+.testing {
+  color: var(--vscode-textLink-foreground);
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 10%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 24%, transparent);
+}
+
+.success {
+  color: var(--vscode-testing-iconPassed, #73c991);
+  background: color-mix(in srgb, var(--vscode-testing-iconPassed, #73c991) 11%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #73c991) 28%, transparent);
+}
+
+.error {
+  color: var(--vscode-errorForeground, #f48771);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 10%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) 28%, transparent);
+}
+
+.compact {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: type.$font-size-2xs;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.details {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  color: currentColor;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: help;
+  white-space: nowrap;
+
+  &:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+}

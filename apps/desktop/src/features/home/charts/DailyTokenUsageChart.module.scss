@@ -1,0 +1,7 @@
+@use "../../../styles/typography" as type;
+
+.root {
+  --daily-token-tooltip-font-size: #{type.$font-size-2xs};
+  width: 100%;
+  height: 200px;
+}

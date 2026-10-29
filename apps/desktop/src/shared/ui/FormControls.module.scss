@@ -1,0 +1,88 @@
+@use "../../styles/typography" as type;
+
+.field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+}
+
+.label {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 20px;
+}
+.hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-descriptionForeground);
+  cursor: help;
+  &:hover {
+    color: var(--vscode-foreground);
+  }
+}
+
+.input {
+  width: 100%;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 5px;
+  outline: none;
+  font: inherit;
+
+  &:focus {
+    border-color: var(--vscode-focusBorder);
+  }
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
+.input {
+  height: 34px;
+  padding: 0 10px;
+
+  &[type="number"] {
+    appearance: textfield;
+  }
+
+  &[type="number"]::-webkit-inner-spin-button,
+  &[type="number"]::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+  }
+}
+
+.secret {
+  position: relative;
+  width: 100%;
+
+  input {
+    padding-right: 34px;
+  }
+}
+
+.secretToggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 30px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--vscode-foreground);
+  }
+}

@@ -1,0 +1,309 @@
+@use "../../styles/typography" as type;
+
+.menuSlots {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.menuSlotContainer {
+  position: relative;
+  height: 42px;
+}
+
+.menuSlot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 32px 0 8px;
+  color: inherit;
+  text-align: left;
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+  border: 2px solid #be8d180d;
+  border-radius: 6px;
+
+  &:hover,
+  &[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
+    border-color: #be8d180d;
+  }
+}
+
+.menuDismiss {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--vscode-descriptionForeground) 42%, transparent);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+
+  &:hover {
+    color: color-mix(in srgb, var(--vscode-foreground) 72%, transparent);
+    background: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 55%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+  }
+}
+
+.menuSlotContainer:hover .menuDismiss {
+  display: flex;
+}
+
+.unreadDot {
+  position: absolute;
+  top: 5px;
+  right: 25px;
+  width: 7px;
+  height: 7px;
+  background: var(--vscode-errorForeground);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--vscode-editorWidget-background);
+}
+
+.menuImage {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  display: block;
+}
+
+.menuCopy {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.menuTitle,
+.menuSubtitle {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.menuOverflow {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.menuMarquee {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.menuMarquee .menuTitle,
+.menuMarquee .menuSubtitle {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menuMarquee [data-rcm-t] {
+    animation-play-state: running !important;
+  }
+}
+
+.menuTitle {
+  font-size: type.$font-size-xs;
+  font-weight: 500;
+}
+
+.menuSubtitle {
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-2xs;
+}
+
+.floatingAd {
+  position: fixed;
+  z-index: 20000;
+  left: 16px;
+  bottom: 16px;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  height: min(360px, calc(100vh - 32px));
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 92%, var(--vscode-foreground) 8%);
+  border-radius: 15px;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  box-shadow: 0 24px 20px rgb(0 0 0 / 28%);
+  animation: ad-enter 180ms ease-out;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+:global(:root[data-theme="default-light"]) .floatingAd {
+  background: var(--vscode-editorWidget-background);
+}
+
+.hero {
+  flex: 0 0 112px;
+  position: relative;
+  height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+
+  img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  img {
+    object-fit: cover;
+  }
+}
+
+.promotionLabel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 7px;
+  color: white;
+  font-size: type.$font-size-xs;
+  line-height: 1;
+  background: rgb(0 0 0 / 48%);
+  border-radius: 4px;
+}
+
+.close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: type.$font-size-xl;
+  line-height: 1;
+  background: rgb(0 0 0 / 16%);
+  border: 0;
+  border-radius: 50%;
+
+  &:hover {
+    background: rgb(0 0 0 / 30%);
+  }
+}
+
+.body {
+  --scroll-shadow-bottom-size: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+}
+
+.bodyContent {
+  padding: 14px 16px 18px;
+}
+
+.intro {
+  h2,
+  p {
+    margin: 0;
+  }
+
+  h2 {
+    font-size: type.$font-size-base;
+    font-weight: 600;
+  }
+
+  p {
+    margin-top: 6px;
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+.detail {
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3 {
+    font-size: type.$font-size-base;
+    font-weight: 500;
+  }
+
+  p {
+    margin-top: 4px;
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+.footer {
+  flex: 0 0 auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--vscode-sideBar-border);
+
+  button {
+    width: 100%;
+    height: 34px;
+    color: #202020;
+    background: #f2f2f2;
+    border: 0;
+    border-radius: 8px;
+
+    &:focus-visible {
+      outline: 2px solid var(--vscode-focusBorder);
+      outline-offset: 2px;
+    }
+  }
+}
+
+@keyframes ad-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floatingAd {
+    animation: none;
+  }
+}

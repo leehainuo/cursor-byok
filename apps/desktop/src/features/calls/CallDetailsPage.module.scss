@@ -1,0 +1,27 @@
+@use "../../styles/typography" as type;
+
+.root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+}
+
+.scroller {
+  width: 100%;
+  height: 100%;
+}
+
+.content {
+  width: calc(100% - 36px);
+  max-width: var(--app-page-max-width);
+  padding: 28px 0 40px;
+  margin-right: auto;
+  margin-left: auto;
+
+  h1 {
+    margin: 0 0 20px;
+    font-size: type.$font-size-lg;
+    font-weight: 630;
+  }
+}

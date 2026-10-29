@@ -1,0 +1,195 @@
+/* styles_responsive.css 定义调试器在窄屏下的响应式布局。 */
+@media (max-width: 920px) {
+  .app-shell {
+    grid-template-rows: 48px auto minmax(0, 1fr) 26px;
+    min-width: 0;
+  }
+
+  .filterbar {
+    align-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .url-filter,
+  .request-id-filter {
+    flex: 1 1 300px;
+    max-width: none;
+  }
+
+  .runtime-status code,
+  .kind-column,
+  .request-table td:nth-child(5) {
+    display: none;
+  }
+
+  .detail-columns {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 1fr) minmax(180px, 1fr);
+    overflow: auto;
+  }
+
+  .payload-panel {
+    min-height: 260px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    grid-template-rows: 82px auto minmax(0, 1fr) 26px;
+  }
+
+  .topbar {
+    position: relative;
+    align-content: center;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 8px 10px;
+  }
+
+  .brand {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .brand strong {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+  }
+
+  .runtime-status {
+    order: 3;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .runtime-status code {
+    display: block;
+    max-width: none;
+  }
+
+  .toolbar-actions {
+    gap: 4px;
+  }
+
+  .toolbar-actions .button {
+    padding: 0 7px;
+  }
+
+  .filterbar {
+    align-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 10px;
+  }
+
+  .url-filter,
+  .request-id-filter {
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .request-count {
+    order: 5;
+    margin-left: auto;
+  }
+
+  #endpoint-filter {
+    order: 3;
+    flex: 1;
+  }
+
+  .sort-control {
+    order: 4;
+    flex: 0 0 104px;
+  }
+
+  .segmented-control button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .workspace {
+    grid-template-rows: minmax(150px, 40%) 5px minmax(260px, 60%);
+  }
+
+  .request-table th,
+  .request-table td {
+    padding: 0 6px;
+  }
+
+  .request-table .index-column,
+  .request-table th:nth-child(2),
+  .request-table td:nth-child(2),
+  .size-column,
+  .request-table th:nth-child(8),
+  .request-table td:nth-child(8),
+  .time-column,
+  .request-table th:nth-child(9),
+  .request-table td:nth-child(9) {
+    display: none;
+  }
+
+  .request-id-column {
+    width: 130px;
+  }
+
+  .method-column {
+    width: 58px;
+  }
+
+  .code-column {
+    width: 50px;
+  }
+
+  .selection-summary {
+    padding: 0 8px;
+  }
+
+  .detail-columns {
+    grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
+  }
+
+  .panel-header > strong {
+    width: 72px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .tabs {
+    overflow-x: auto;
+  }
+
+  .tabs button {
+    min-width: 42px;
+    padding: 0 6px;
+  }
+
+  .copy-button {
+    width: 42px;
+    margin-right: 4px;
+  }
+
+  .frame-list {
+    min-width: 0;
+  }
+
+  .frame-item summary {
+    grid-template-columns: 42px minmax(100px, 1fr) 62px 72px;
+    padding: 0 7px;
+  }
+
+  .statusbar {
+    gap: 8px;
+  }
+
+  #upstream-url {
+    display: none;
+  }
+}

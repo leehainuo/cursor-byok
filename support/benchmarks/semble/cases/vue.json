@@ -1,0 +1,78 @@
+{
+  "_comment": "Vue benchmark ground truth pinned to one immutable upstream commit.",
+  "name": "vue",
+  "repository": "https://github.com/vuejs/core.git",
+  "commit": "a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+  "queries": [
+    {
+      "id": "reactive-proxy",
+      "query": "turn an object into a deeply reactive Vue proxy",
+      "literal_query": "createReactiveObject mutableHandlers mutableCollectionHandlers",
+      "symbol_query": "reactive",
+      "expected": [{ "path": "packages/reactivity/src/reactive.ts", "line": 87 }]
+    },
+    {
+      "id": "create-ref",
+      "query": "create a Vue ref around a value",
+      "literal_query": "IfAny UnwrapRef createRef",
+      "symbol_query": "ref",
+      "expected": [{ "path": "packages/reactivity/src/ref.ts", "line": 64 }]
+    },
+    {
+      "id": "create-renderer",
+      "query": "create a custom Vue renderer from host operations",
+      "literal_query": "baseCreateRenderer RendererOptions HostElement",
+      "symbol_query": "createRenderer",
+      "expected": [{ "path": "packages/runtime-core/src/renderer.ts", "line": 318 }]
+    },
+    {
+      "id": "patch-keyed-children",
+      "query": "diff keyed children using the longest increasing subsequence",
+      "literal_query": "patchKeyedChildren VNodeArrayChildren parentAnchor",
+      "symbol_query": "patchKeyedChildren",
+      "expected": [{ "path": "packages/runtime-core/src/renderer.ts", "line": 1804 }]
+    },
+    {
+      "id": "compile-template",
+      "query": "compile a Vue template AST into render function code",
+      "literal_query": "baseCompile source options TransformOptions",
+      "symbol_query": "baseCompile",
+      "expected": [{ "path": "packages/compiler-core/src/compile.ts", "line": 67 }]
+    },
+    {
+      "id": "parse-template",
+      "query": "parse a Vue template string into a root AST",
+      "literal_query": "baseParse currentInput defaultParserOptions",
+      "symbol_query": "baseParse",
+      "expected": [{ "path": "packages/compiler-core/src/parser.ts", "line": 1028 }]
+    },
+    {
+      "id": "reactivity-watch",
+      "query": "watch reactive sources and run a callback when values change",
+      "literal_query": "watch source cb options WatchOptions",
+      "symbol_query": "watch",
+      "expected": [{ "path": "packages/reactivity/src/watch.ts", "line": 120 }]
+    },
+    {
+      "id": "create-app-api",
+      "query": "create a Vue application instance and mount its root component",
+      "literal_query": "createApp rootComponent rootProps",
+      "symbol_query": "createAppAPI",
+      "expected": [{ "path": "packages/runtime-core/src/apiCreateApp.ts", "line": 253 }]
+    },
+    {
+      "id": "define-component",
+      "query": "define a Vue component while preserving type inference",
+      "literal_query": "isFunction options extraOptions setup",
+      "symbol_query": "defineComponent",
+      "expected": [{ "path": "packages/runtime-core/src/apiDefineComponent.ts", "line": 305 }]
+    },
+    {
+      "id": "hydrate-node",
+      "query": "hydrate server-rendered DOM nodes into Vue virtual nodes",
+      "literal_query": "hydrateNode container firstChild vnode",
+      "symbol_query": "hydrateNode",
+      "expected": [{ "path": "packages/runtime-core/src/hydration.ts", "line": 137 }]
+    }
+  ]
+}

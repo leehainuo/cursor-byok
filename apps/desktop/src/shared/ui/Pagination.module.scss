@@ -1,0 +1,35 @@
+@use "../../styles/typography" as type;
+
+.root {
+  flex: 0 0 auto;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0px 0 6px 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: type.$font-size-xs;
+  background: transparent;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  > button {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+.pageSize {
+  width: 92px;
+  margin-right: 4px;
+
+  > button {
+    height: 26px;
+    padding: 0 7px;
+  }
+}

@@ -1,0 +1,48 @@
+@use "../../styles/typography" as type;
+
+.root {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--vscode-foreground);
+  font-size: type.$font-size-xs;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &:has(input:focus-visible) .control {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+  }
+
+  &:has(input:checked) .control {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border-color: var(--vscode-button-background);
+  }
+
+  &:has(input:disabled) {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.control {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: var(--vscode-checkbox-foreground, var(--vscode-button-foreground));
+  background: var(--vscode-checkbox-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-checkbox-border, var(--vscode-input-border));
+  border-radius: 3px;
+}
