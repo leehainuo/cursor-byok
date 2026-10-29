@@ -1,6 +1,6 @@
 {
   "name": "cursor-byok-desktop",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Cursor BYOK desktop management application",
   "type": "module",
   "scripts": {
@@ -60,5 +60,9 @@
   },
   "overrides": {
     "dompurify": "3.4.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leehainuo/cursor-byok.git"
   }
 }
