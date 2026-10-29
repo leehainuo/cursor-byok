@@ -26,21 +26,21 @@ use serde_json::{json, Value};
 async fn repeated_edits_and_recovered_turns_keep_the_original_file_snapshot() {
     let (directory, store) = fixtures::temp_store().await;
     let provider = fake_provider::FakeProvider::default();
-    tool(
+    push_tool_response(
         &provider,
         "write",
         "Write",
         json!({"path":"/tmp/a", "contents":"first\n"}),
     );
-    tool(
+    push_tool_response(
         &provider,
         "replace",
         "StrReplace",
         json!({"path":"/tmp/a", "old_string":"first", "new_string":"second"}),
     );
-    done(&provider);
+    push_final_response(&provider);
     let mut files = HashMap::from([("/tmp/a".into(), "original\n".into())]);
-    let state = run(&store, &provider, "first", None, &mut files, false).await;
+    let state = drive_edits(&store, &provider, "first", None, &mut files, false).await;
     assert_file(&store, &state, "/tmp/a", "original\n", "second\n").await;
     let edits = history_edits(&store, &state).await;
     assert_eq!(edits.len(), 2);
@@ -65,14 +65,14 @@ async fn repeated_edits_and_recovered_turns_keep_the_original_file_snapshot() {
     .await
     .unwrap();
     let provider = fake_provider::FakeProvider::default();
-    tool(
+    push_tool_response(
         &provider,
         "resume-write",
         "Write",
         json!({"path":"/tmp/a", "contents":"third\n"}),
     );
-    done(&provider);
-    let next = run(
+    push_final_response(&provider);
+    let next = drive_edits(
         &reopened,
         &provider,
         "second",
@@ -97,15 +97,15 @@ async fn new_and_large_files_retain_full_snapshots_when_history_diffs_are_bounde
     let (_directory, store) = fixtures::temp_store().await;
     let provider = fake_provider::FakeProvider::default();
     let contents = "complete file content\n".repeat(5000);
-    tool(
+    push_tool_response(
         &provider,
         "new-file",
         "Write",
         json!({"path":"/tmp/new", "contents":contents}),
     );
-    done(&provider);
+    push_final_response(&provider);
     let mut files = HashMap::new();
-    let state = run(&store, &provider, "new-file", None, &mut files, false).await;
+    let state = drive_edits(&store, &provider, "new-file", None, &mut files, false).await;
     assert_file(&store, &state, "/tmp/new", "", &contents).await;
     let edits = history_edits(&store, &state).await;
     assert_eq!(edits[0].lines_added, Some(5000));
@@ -117,21 +117,26 @@ async fn new_and_large_files_retain_full_snapshots_when_history_diffs_are_bounde
 async fn rejected_writes_do_not_create_file_review_state() {
     let (_directory, store) = fixtures::temp_store().await;
     let provider = fake_provider::FakeProvider::default();
-    tool(
+    push_tool_response(
         &provider,
         "rejected",
         "Write",
         json!({"path":"/tmp/a", "contents":"rejected\n"}),
     );
-    done(&provider);
+    push_final_response(&provider);
     let mut files = HashMap::from([("/tmp/a".into(), "original\n".into())]);
-    let state = run(&store, &provider, "rejected", None, &mut files, true).await;
+    let state = drive_edits(&store, &provider, "rejected", None, &mut files, true).await;
     assert!(state.file_states_v2.is_empty());
     assert!(history_edits(&store, &state).await.is_empty());
     assert_eq!(files["/tmp/a"], "original\n");
 }
 
-fn tool(provider: &fake_provider::FakeProvider, id: &str, name: &str, arguments: Value) {
+fn push_tool_response(
+    provider: &fake_provider::FakeProvider,
+    id: &str,
+    name: &str,
+    arguments: Value,
+) {
     provider.push(vec![
         ModelEvent::Start {
             model_call_id: format!("model-{id}"),
@@ -150,7 +155,7 @@ fn tool(provider: &fake_provider::FakeProvider, id: &str, name: &str, arguments:
     ]);
 }
 
-fn done(provider: &fake_provider::FakeProvider) {
+fn push_final_response(provider: &fake_provider::FakeProvider) {
     provider.push(vec![
         ModelEvent::Start {
             model_call_id: "final".into(),
@@ -162,7 +167,7 @@ fn done(provider: &fake_provider::FakeProvider) {
     ]);
 }
 
-async fn run(
+async fn drive_edits(
     store: &Store,
     provider: &fake_provider::FakeProvider,
     request_id: &str,
@@ -187,36 +192,10 @@ async fn run(
     );
     let handle = registry.get_or_create(request_id).await.unwrap();
     let mut output = handle.subscribe();
-    let request = pb::AgentRunRequest {
-        conversation_id: Some("file-review".into()),
-        run_id: Some(request_id.into()),
-        conversation_state: state,
-        action: Some(pb::ConversationAction {
-            action: Some(pb::conversation_action::Action::UserMessageAction(
-                pb::UserMessageAction {
-                    user_message: Some(pb::UserMessage {
-                        text: "edit the file".into(),
-                        message_id: format!("user-{request_id}"),
-                        mode: pb::AgentMode::Agent as i32,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            )),
-            ..Default::default()
-        }),
-        requested_model: Some(pb::RequestedModel {
-            model_id: "test-model".into(),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
     handle
         .command(TransportCommand::Append {
             seqno: 0,
-            message: Box::new(pb::AgentClientMessage {
-                message: Some(pb::agent_client_message::Message::RunRequest(request)),
-            }),
+            message: Box::new(edit_request(request_id, state)),
         })
         .await
         .unwrap();
@@ -229,11 +208,8 @@ async fn run(
             .unwrap();
         let (flags, payload) = connect::decode_frames(&frame).unwrap().pop().unwrap();
         if flags & connect::END_STREAM_FLAG != 0 {
-            assert!(
-                !String::from_utf8_lossy(&payload).contains("error"),
-                "unexpected stream error: {}",
-                String::from_utf8_lossy(&payload)
-            );
+            let end: Value = serde_json::from_slice(&payload).unwrap();
+            assert!(end.get("error").is_none(), "unexpected stream error: {end}");
             break;
         }
         let server = pb::AgentServerMessage::decode(payload).unwrap();
@@ -252,41 +228,7 @@ async fn run(
                 })
             }
             Some(pb::agent_server_message::Message::ExecServerMessage(exec)) => {
-                let result = match exec.message.unwrap() {
-                    pb::exec_server_message::Message::ReadArgs(args) => {
-                        let result = match files.get(&args.path) {
-                            Some(content) => pb::read_result::Result::Success(pb::ReadSuccess {
-                                path: args.path,
-                                output: Some(pb::read_success::Output::Content(content.clone())),
-                                ..Default::default()
-                            }),
-                            None => pb::read_result::Result::FileNotFound(pb::ReadFileNotFound {
-                                path: args.path,
-                            }),
-                        };
-                        pb::exec_client_message::Message::ReadResult(pb::ReadResult {
-                            result: Some(result),
-                        })
-                    }
-                    pb::exec_server_message::Message::WriteArgs(args) => {
-                        let result = if reject_writes {
-                            pb::write_result::Result::Rejected(pb::WriteRejected {
-                                path: args.path,
-                                reason: "rejected by user".into(),
-                            })
-                        } else {
-                            files.insert(args.path.clone(), args.file_text);
-                            pb::write_result::Result::Success(pb::WriteSuccess {
-                                path: args.path,
-                                ..Default::default()
-                            })
-                        };
-                        pb::exec_client_message::Message::WriteResult(pb::WriteResult {
-                            result: Some(result),
-                        })
-                    }
-                    other => panic!("unexpected exec: {other:?}"),
-                };
+                let result = file_exec_result(exec.message.unwrap(), files, reject_writes);
                 pb::agent_client_message::Message::ExecClientMessage(pb::ExecClientMessage {
                     id: exec.id,
                     message: Some(result),
@@ -325,6 +267,81 @@ async fn run(
         seqno += 1;
     }
     final_state.expect("final checkpoint")
+}
+
+fn edit_request(
+    request_id: &str,
+    state: Option<pb::ConversationStateStructure>,
+) -> pb::AgentClientMessage {
+    let request = pb::AgentRunRequest {
+        conversation_id: Some("file-review".into()),
+        run_id: Some(request_id.into()),
+        conversation_state: state,
+        action: Some(pb::ConversationAction {
+            action: Some(pb::conversation_action::Action::UserMessageAction(
+                pb::UserMessageAction {
+                    user_message: Some(pb::UserMessage {
+                        text: "edit the file".into(),
+                        message_id: format!("user-{request_id}"),
+                        mode: pb::AgentMode::Agent as i32,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+            ..Default::default()
+        }),
+        requested_model: Some(pb::RequestedModel {
+            model_id: "test-model".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    pb::AgentClientMessage {
+        message: Some(pb::agent_client_message::Message::RunRequest(request)),
+    }
+}
+
+fn file_exec_result(
+    message: pb::exec_server_message::Message,
+    files: &mut HashMap<String, String>,
+    reject_writes: bool,
+) -> pb::exec_client_message::Message {
+    match message {
+        pb::exec_server_message::Message::ReadArgs(args) => {
+            let result = match files.get(&args.path) {
+                Some(content) => pb::read_result::Result::Success(pb::ReadSuccess {
+                    path: args.path,
+                    output: Some(pb::read_success::Output::Content(content.clone())),
+                    ..Default::default()
+                }),
+                None => {
+                    pb::read_result::Result::FileNotFound(pb::ReadFileNotFound { path: args.path })
+                }
+            };
+            pb::exec_client_message::Message::ReadResult(pb::ReadResult {
+                result: Some(result),
+            })
+        }
+        pb::exec_server_message::Message::WriteArgs(args) => {
+            let result = if reject_writes {
+                pb::write_result::Result::Rejected(pb::WriteRejected {
+                    path: args.path,
+                    reason: "rejected by user".into(),
+                })
+            } else {
+                files.insert(args.path.clone(), args.file_text);
+                pb::write_result::Result::Success(pb::WriteSuccess {
+                    path: args.path,
+                    ..Default::default()
+                })
+            };
+            pb::exec_client_message::Message::WriteResult(pb::WriteResult {
+                result: Some(result),
+            })
+        }
+        other => panic!("unexpected exec: {other:?}"),
+    }
 }
 
 async fn assert_file(
