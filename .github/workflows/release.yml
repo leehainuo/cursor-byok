@@ -312,7 +312,7 @@ jobs:
           | Linux x64 (Debian/Ubuntu) | [Download DEB](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK_${VERSION}_amd64.deb) |
           | Linux x64 (Fedora/RHEL) | [Download RPM](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK-${VERSION}-1.x86_64.rpm) |
 
-          The other files in Assets, including `.sig`, `latest.json` and `portable-latest.json`, are used by automatic updates. macOS packages are ad-hoc signed and are not Apple-notarized.
+          The other files in Assets, including signature files (.sig), latest.json and portable-latest.json, are used by automatic updates. macOS packages are ad-hoc signed and are not Apple-notarized.
 
           **Changes:** https://github.com/${GITHUB_REPOSITORY}/commits/v${VERSION}
 
