@@ -1,4 +1,4 @@
-//! Implements Cursor analytics endpoints and event handling.
+//! Configures Cursor feature gates for the backend Agent protocol.
 use axum::{
     body::{Body, Bytes},
     extract::Extension,
@@ -13,8 +13,11 @@ use sha2::{Digest, Sha256};
 use crate::{api::cursor::proxy, Error, Result};
 
 pub const BOOTSTRAP_STATSIG_PATH: &str = "/aiserver.v1.AnalyticsService/BootstrapStatsig";
-const AGENT_RETRIES_GATE: &str = "nal_agent_retries";
-const LOCAL_RULE: &str = "local_enabled";
+const AGENT_GATES: [(&str, bool); 2] = [
+    ("nal_agent_retries", true),
+    // The client-owned loop sends RunInference rather than AgentRunRequest over BidiAppend.
+    ("agent_host_local_loop", false),
+];
 
 #[derive(Clone, PartialEq, Message)]
 struct BootstrapStatsigResponse {
@@ -51,7 +54,7 @@ fn patch_upstream(response: proxy::BufferedResponse) -> Result<Response<Body>> {
     let (framed, payload) = unary_payload(&response.body)?;
     let mut message = BootstrapStatsigResponse::decode(payload)?;
     let mut config = serde_json::from_str::<Value>(&message.config)?;
-    enable_agent_retries(&mut config)?;
+    configure_agent_gates(&mut config)?;
     message.config = serde_json::to_string(&config)?;
     Ok(response.with_body(encode_unary(&message, framed)))
 }
@@ -74,13 +77,14 @@ fn local_response() -> Result<Response<Body>> {
         },
         "time": generated_at_ms
     });
-    enable_agent_retries(&mut config)?;
+    configure_agent_gates(&mut config)?;
     let message = BootstrapStatsigResponse {
         config: serde_json::to_string(&config)?,
         generated_at_ms,
     };
     let body = message.encode_to_vec();
-    let mut response = Response::new(Body::from(body.clone()));
+    let length = body.len();
+    let mut response = Response::new(Body::from(body));
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -88,7 +92,7 @@ fn local_response() -> Result<Response<Body>> {
     );
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
-        body.len()
+        length
             .to_string()
             .parse()
             .expect("body length is a valid header value"),
@@ -96,8 +100,8 @@ fn local_response() -> Result<Response<Body>> {
     Ok(response)
 }
 
-fn enable_agent_retries(config: &mut Value) -> Result<()> {
-    let gate_key = statsig_key(config, AGENT_RETRIES_GATE);
+fn configure_agent_gates(config: &mut Value) -> Result<()> {
+    let overrides = AGENT_GATES.map(|(name, enabled)| (statsig_key(config, name), enabled));
     let root = config
         .as_object_mut()
         .ok_or_else(|| Error::Protocol("Statsig bootstrap config must be an object".into()))?;
@@ -106,7 +110,9 @@ fn enable_agent_retries(config: &mut Value) -> Result<()> {
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| Error::Protocol("Statsig feature_gates must be an object".into()))?;
-    gates.insert(gate_key.clone(), enabled_gate(&gate_key));
+    for (key, enabled) in overrides {
+        gates.insert(key.clone(), feature_gate(&key, enabled));
+    }
     Ok(())
 }
 
@@ -127,14 +133,19 @@ fn djb2(value: &str) -> String {
         .to_string()
 }
 
-fn enabled_gate(name: &str) -> Value {
+fn feature_gate(name: &str, enabled: bool) -> Value {
+    let rule = if enabled {
+        "local_enabled"
+    } else {
+        "local_disabled"
+    };
     json!({
         "name": name,
-        "value": true,
-        "rule_id": LOCAL_RULE,
-        "ruleID": LOCAL_RULE,
-        "group_name": LOCAL_RULE,
-        "groupName": LOCAL_RULE,
+        "value": enabled,
+        "rule_id": rule,
+        "ruleID": rule,
+        "group_name": rule,
+        "groupName": rule,
         "secondary_exposures": [],
         "secondaryExposures": [],
         "undelegated_secondary_exposures": [],
