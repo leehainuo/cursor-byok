@@ -77,6 +77,10 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
+      - name: Audit frontend dependencies
+        working-directory: apps/desktop
+        run: npm audit --audit-level=high
+
       - name: Check types and production build
         working-directory: apps/desktop
         run: npm run check
