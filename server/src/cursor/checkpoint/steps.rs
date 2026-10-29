@@ -1,12 +1,16 @@
 //! Buffers Conversation steps that have not yet been persisted.
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use crate::cursor::{protocol::proto::agent::v1 as pb, tools::tool_call_result::ToolCompletion};
+use crate::cursor::{
+    protocol::proto::agent::v1 as pb,
+    tools::tool_call_result::{EditSnapshot, ToolCompletion},
+};
 
 #[derive(Default)]
 pub struct PendingSteps {
     pub steps: Vec<pb::ConversationStep>,
     pub read_paths: Vec<String>,
+    pub(crate) edit_snapshots: Vec<Arc<EditSnapshot>>,
 }
 
 #[derive(Default)]
@@ -15,6 +19,7 @@ pub struct StepBuffer {
     read_paths: Vec<String>,
     text: String,
     thinking: String,
+    edit_snapshots: Vec<Arc<EditSnapshot>>,
 }
 
 impl StepBuffer {
@@ -54,6 +59,9 @@ impl StepBuffer {
     }
 
     pub fn tool_completed(&mut self, completion: &ToolCompletion) {
+        if let Some(snapshot) = completion.edit_snapshot() {
+            self.edit_snapshots.push(Arc::clone(snapshot));
+        }
         if let Some(pb::tool_call::Tool::ReadToolCall(read)) = &completion.tool_call().tool {
             if matches!(
                 read.result
@@ -98,6 +106,7 @@ impl StepBuffer {
         PendingSteps {
             steps: std::mem::take(&mut self.steps),
             read_paths: std::mem::take(&mut self.read_paths),
+            edit_snapshots: std::mem::take(&mut self.edit_snapshots),
         }
     }
 }

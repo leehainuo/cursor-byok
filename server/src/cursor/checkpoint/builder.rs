@@ -158,6 +158,7 @@ impl CheckpointBuilder {
         presentation: &PendingSteps,
     ) -> Result<pb::ConversationStateStructure> {
         self.record_background_subagents(presentation);
+        self.project_files(presentation).await?;
         let root_ids = self.project_roots(messages).await?;
         let turn_ids = self.project_turns(mode, presentation).await?;
         let (todo_ids, plan_id) = self.build_derived_state(messages).await?;

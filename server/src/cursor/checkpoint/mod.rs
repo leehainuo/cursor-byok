@@ -2,6 +2,7 @@
 
 mod builder;
 mod derived;
+mod files;
 pub mod messages;
 mod recovery;
 mod roots;

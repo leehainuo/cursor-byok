@@ -7,6 +7,8 @@ mod mcp;
 mod mcp_state;
 mod search;
 
+use std::sync::Arc;
+
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -30,6 +32,31 @@ pub struct ToolCompletion {
     result: ToolResult,
     tool_call: pb::ToolCall,
     read_image: Option<ReadImage>,
+    edit_snapshot: Option<Arc<EditSnapshot>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct EditSnapshot {
+    pub(crate) path: String,
+    pub(crate) before: String,
+    pub(crate) after: String,
+}
+
+impl EditSnapshot {
+    fn from_tool(tool: &pb::tool_call::Tool) -> Option<Self> {
+        let pb::tool_call::Tool::EditToolCall(edit) = tool else {
+            return None;
+        };
+        let pb::edit_result::Result::Success(success) = edit.result.as_ref()?.result.as_ref()?
+        else {
+            return None;
+        };
+        Some(Self {
+            path: success.path.clone(),
+            before: success.before_full_file_content.clone()?,
+            after: success.after_full_file_content.clone(),
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +73,10 @@ impl ToolCompletion {
 
     pub fn tool_call(&self) -> &pb::ToolCall {
         &self.tool_call
+    }
+
+    pub(crate) fn edit_snapshot(&self) -> Option<&Arc<EditSnapshot>> {
+        self.edit_snapshot.as_ref()
     }
 
     pub(super) fn with_read_image(mut self, image: Option<ReadImage>) -> Self {
@@ -90,6 +121,9 @@ impl ToolCompletion {
         mut result: ToolResult,
         mut tool: pb::tool_call::Tool,
     ) -> Self {
+        // File review needs the complete snapshots, independently of the
+        // bounded tool result used by history and provider projections.
+        let edit_snapshot = EditSnapshot::from_tool(&tool).map(Arc::new);
         // Apply the model-visible size gate once, at the tool completion
         // boundary. Canonical history and every provider projection then
         // carry the same bounded result without reprocessing it.
@@ -104,6 +138,7 @@ impl ToolCompletion {
                 hook_additional_contexts: Vec::new(),
             },
             read_image: None,
+            edit_snapshot,
         }
     }
 
