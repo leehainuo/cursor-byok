@@ -155,6 +155,36 @@ jobs:
           uploadUpdaterJson: true
           args: ${{ matrix.args }}
 
+      # Tauri builds macOS DMGs, but tauri-action uploads only updater bundles.
+      # Publish readable installers separately without renaming signed updater assets.
+      - name: Upload macOS DMG installers
+        if: startsWith(matrix.platform, 'macos-')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          case "${PLATFORM}" in
+            macos-aarch64) arch=arm64 ;;
+            macos-x86_64) arch=x64 ;;
+            *) echo "Unsupported macOS platform: ${PLATFORM}" >&2; exit 1 ;;
+          esac
+
+          dmgs=(target/"${TARGET}"/release/bundle/dmg/*.dmg)
+          if [[ "${#dmgs[@]}" -ne 1 ]]; then
+            echo "Expected exactly one macOS DMG; found ${#dmgs[@]}" >&2
+            exit 1
+          fi
+
+          installer="cursor-byok-${VERSION}-macos-${arch}.dmg"
+          cp "${dmgs[0]}" "${installer}"
+          gh release upload "v${VERSION}" "${installer}" --clobber
+
       - name: Package and sign Windows portable update
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
@@ -245,6 +275,60 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: gh release upload "v${VERSION}" portable-update/* LICENSE THIRD-PARTY-LICENSES.md --clobber
+
+      - name: Verify installers exist on the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=$(gh release view "v${VERSION}" --json assets --jq '[.assets[].name]')
+          for installer in \
+            "cursor-byok-${VERSION}-macos-arm64.dmg" \
+            "cursor-byok-${VERSION}-macos-x64.dmg" \
+            "Cursor.BYOK_${VERSION}_x64-setup.exe" \
+            "cursor-byok-${VERSION}-windows-amd64.zip" \
+            "Cursor.BYOK_${VERSION}_amd64.AppImage" \
+            "Cursor.BYOK_${VERSION}_amd64.deb" \
+            "Cursor.BYOK-${VERSION}-1.x86_64.rpm" ; do
+            echo "${assets}" | jq -e --arg name "${installer}" 'index($name) != null' >/dev/null
+          done
+
+      - name: Write release download guide
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          cat > RELEASE_NOTES.md <<EOF
+          # Cursor BYOK v${VERSION}
+
+          Independent community-maintained release of Cursor BYOK.
+
+          ## Download / 下载安装
+
+          | Platform | Package |
+          | --- | --- |
+          | macOS Apple Silicon (arm64) | [Download DMG](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-macos-arm64.dmg) |
+          | macOS Intel | [Download DMG](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-macos-x64.dmg) |
+          | Windows x64 (Installer) | [Download EXE](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK_${VERSION}_x64-setup.exe) |
+          | Windows x64 (Portable) | [Download ZIP](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-windows-amd64.zip) |
+          | Linux x64 (AppImage) | [Download AppImage](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK_${VERSION}_amd64.AppImage) |
+          | Linux x64 (Debian/Ubuntu) | [Download DEB](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK_${VERSION}_amd64.deb) |
+          | Linux x64 (Fedora/RHEL) | [Download RPM](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK-${VERSION}-1.x86_64.rpm) |
+
+          The other files in Assets, including signature files (.sig), latest.json and portable-latest.json, are used by automatic updates. macOS packages are ad-hoc signed and are not Apple-notarized.
+
+          **Changes:** https://github.com/${GITHUB_REPOSITORY}/commits/v${VERSION}
+
+          This is an unofficial project and is not affiliated with Cursor.
+          EOF
+
+      - name: Update draft release description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: gh release edit "v${VERSION}" --notes-file RELEASE_NOTES.md
 
       - name: Publish the completed release
         env:
