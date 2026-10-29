@@ -1,0 +1,26 @@
+name: Bug report / 问题反馈
+description: Report a reproducible problem / 反馈可复现的问题
+body:
+  - type: markdown
+    attributes:
+      value: Please remove API keys, tokens, and private conversation content before sharing logs. / 请先移除日志中的密钥、Token 和私人对话内容。
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 使用环境
+      description: Include OS and architecture, Cursor version, cursor-byok version, model ID, and API protocol.
+      placeholder: "macOS arm64 / Cursor 3.x / cursor-byok 1.0.0 / model / Responses API"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Describe the steps, expected result, and actual result. / 描述操作步骤、预期结果和实际结果。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error and logs / 错误与日志
+      render: text

@@ -3,6 +3,8 @@ LOCAL_TAURI_SIGNING_KEY := $(CURDIR)/.tauri/cursor-byok.local.key
 .PHONY: check dev-web dev-server dev-desktop build-web build-server build-desktop build-docker
 
 check:
+	node .github/scripts/check-release.mjs
+	node --test .github/scripts/*.test.mjs
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace --all-targets

@@ -35,6 +35,7 @@ RUN apt-get update && \
     mkdir -p /app/console /data && \
     chown cursor-byok:cursor-byok /data
 
+COPY LICENSE THIRD-PARTY-LICENSES.md /usr/share/licenses/cursor-byok/
 COPY --from=server /tmp/cursor-server /usr/local/bin/cursor-server
 COPY --from=web /src/apps/desktop/dist/ /app/console/
 

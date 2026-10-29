@@ -1,16 +1,13 @@
 use std::process::ExitCode;
 
+#[cfg(any(target_os = "windows", test))]
+use std::io::{Cursor, Read};
 #[cfg(target_os = "windows")]
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
-};
-#[cfg(any(target_os = "windows", test))]
-use std::{
-    io::{Cursor, Read},
-    path::Path,
 };
 
 use serde::Serialize;
@@ -208,21 +205,22 @@ fn ensure_target_writable(target: &Path) -> std::io::Result<()> {
 fn extract_windows_payload(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| format!("failed to open ZIP: {error}"))?;
-    if archive.len() != 1 {
-        return Err("archive must contain exactly one file".into());
+    if archive.len() != 3 {
+        return Err("archive must contain the executable and both license notices".into());
+    }
+    for name in ["LICENSE", "THIRD-PARTY-LICENSES.md"] {
+        let notice = archive
+            .by_name(name)
+            .map_err(|error| format!("missing license notice {name}: {error}"))?;
+        if notice.is_dir() {
+            return Err(format!("license notice {name} must be a file"));
+        }
     }
     let mut entry = archive
-        .by_index(0)
-        .map_err(|error| format!("failed to read ZIP entry: {error}"))?;
-    let name = Path::new(entry.name())
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "archive entry has an invalid file name".to_string())?;
-    if name != WINDOWS_PAYLOAD_NAME || entry.is_dir() {
-        return Err(format!(
-            "expected {WINDOWS_PAYLOAD_NAME}, found {}",
-            entry.name()
-        ));
+        .by_name(WINDOWS_PAYLOAD_NAME)
+        .map_err(|error| format!("failed to read executable: {error}"))?;
+    if entry.is_dir() {
+        return Err("executable must be a file".into());
     }
     let mut payload = Vec::with_capacity(entry.size() as usize);
     entry
@@ -253,7 +251,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn update_zip(name: &str, payload: &[u8]) -> Vec<u8> {
+    fn update_zip(name: &str, payload: &[u8], include_notices: bool) -> Vec<u8> {
         let mut bytes = Cursor::new(Vec::new());
         {
             let mut archive = zip::ZipWriter::new(&mut bytes);
@@ -261,6 +259,14 @@ mod tests {
                 .start_file(name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             archive.write_all(payload).unwrap();
+            if include_notices {
+                for notice in ["LICENSE", "THIRD-PARTY-LICENSES.md"] {
+                    archive
+                        .start_file(notice, zip::write::SimpleFileOptions::default())
+                        .unwrap();
+                    archive.write_all(b"MIT License").unwrap();
+                }
+            }
             archive.finish().unwrap();
         }
         bytes.into_inner()
@@ -268,15 +274,21 @@ mod tests {
 
     #[test]
     fn extracts_the_single_expected_windows_executable() {
-        let bytes = update_zip(WINDOWS_PAYLOAD_NAME, b"MZpayload");
+        let bytes = update_zip(WINDOWS_PAYLOAD_NAME, b"MZpayload", true);
         assert_eq!(extract_windows_payload(&bytes).unwrap(), b"MZpayload");
     }
 
     #[test]
     fn rejects_unexpected_or_non_executable_payloads() {
-        let wrong_name = update_zip("other.exe", b"MZpayload");
+        let wrong_name = update_zip("other.exe", b"MZpayload", true);
         assert!(extract_windows_payload(&wrong_name).is_err());
-        let wrong_content = update_zip(WINDOWS_PAYLOAD_NAME, b"not an executable");
+        let wrong_content = update_zip(WINDOWS_PAYLOAD_NAME, b"not an executable", true);
         assert!(extract_windows_payload(&wrong_content).is_err());
+    }
+
+    #[test]
+    fn rejects_archives_without_license_notices() {
+        let bytes = update_zip(WINDOWS_PAYLOAD_NAME, b"MZpayload", false);
+        assert!(extract_windows_payload(&bytes).is_err());
     }
 }
