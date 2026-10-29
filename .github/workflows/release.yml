@@ -295,15 +295,13 @@ jobs:
             echo "${assets}" | jq -e --arg name "${installer}" 'index($name) != null' >/dev/null
           done
 
-      - name: Write release download guide
+      - name: Write release notes and download guide
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
-          cat > RELEASE_NOTES.md <<EOF
-          # Cursor BYOK v${VERSION}
-
-          Independent community-maintained release of Cursor BYOK.
+          cat ".github/release-notes/${VERSION}.md" > RELEASE_NOTES.md
+          cat >> RELEASE_NOTES.md <<EOF
 
           ## Download / 下载安装
 

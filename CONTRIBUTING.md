@@ -23,6 +23,8 @@ make check
 
 Desktop versions must match in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`, and the desktop entry in `Cargo.lock`.
 
+Write the release notes in `.github/release-notes/MAJOR.MINOR.PATCH.md`. The workflow appends the platform download guide before publication.
+
 Run `node .github/scripts/check-release.mjs`, then validate the desktop build with `npm --prefix apps/desktop run tauri:build -- --debug --no-bundle`.
 
 The maintainer publishes releases by pushing a matching `vMAJOR.MINOR.PATCH` tag after CI passes on `main`. The release workflow builds all platforms, verifies the updater manifests, and publishes only after every build succeeds. Ordinary commits do not publish releases.
