@@ -286,7 +286,12 @@ jobs:
           assets=$(gh release view "v${VERSION}" --json assets --jq '[.assets[].name]')
           for installer in \
             "cursor-byok-${VERSION}-macos-arm64.dmg" \
-            "cursor-byok-${VERSION}-macos-x64.dmg" ; do
+            "cursor-byok-${VERSION}-macos-x64.dmg" \
+            "Cursor.BYOK_${VERSION}_x64-setup.exe" \
+            "cursor-byok-${VERSION}-windows-amd64.zip" \
+            "Cursor.BYOK_${VERSION}_amd64.AppImage" \
+            "Cursor.BYOK_${VERSION}_amd64.deb" \
+            "Cursor.BYOK-${VERSION}-1.x86_64.rpm" ; do
             echo "${assets}" | jq -e --arg name "${installer}" 'index($name) != null' >/dev/null
           done
 
@@ -304,7 +309,7 @@ jobs:
 
           | Platform | Package |
           | --- | --- |
-          | macOS Apple Silicon (M1/M2/M3/M4) | [Download DMG](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-macos-arm64.dmg) |
+          | macOS Apple Silicon (arm64) | [Download DMG](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-macos-arm64.dmg) |
           | macOS Intel | [Download DMG](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-macos-x64.dmg) |
           | Windows x64 (Installer) | [Download EXE](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/Cursor.BYOK_${VERSION}_x64-setup.exe) |
           | Windows x64 (Portable) | [Download ZIP](https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/cursor-byok-${VERSION}-windows-amd64.zip) |
