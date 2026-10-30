@@ -187,21 +187,21 @@ fn create_main_window(
 /// 按需打开主窗口:webview 仅在需要界面时创建,关闭窗口即销毁释放内存。
 pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
-    if app.state::<DesktopRuntime>().show_dock_icon() {
-        if let Err(error) = apply_dock_icon_visibility(app, true) {
-            tracing::warn!(%error, "failed to show the Dock icon");
-        }
-    }
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    app.show()?;
+
+    let window = if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-    let address = app.state::<DesktopRuntime>().server_addr;
-    let window = create_main_window(app, address)?;
+        window
+    } else {
+        let address = app.state::<DesktopRuntime>().server_addr;
+        create_main_window(app, address)?
+    };
     window.show()?;
     window.set_focus()?;
+
+    #[cfg(target_os = "macos")]
+    apply_dock_icon_visibility(app, app.state::<DesktopRuntime>().show_dock_icon())?;
+
     Ok(())
 }
 
@@ -372,10 +372,7 @@ pub fn run() -> ExitCode {
             }
         },
         #[cfg(target_os = "macos")]
-        RunEvent::Reopen {
-            has_visible_windows: false,
-            ..
-        } => {
+        RunEvent::Reopen { .. } => {
             let _ = open_main_window(app);
         }
         _ => {}
