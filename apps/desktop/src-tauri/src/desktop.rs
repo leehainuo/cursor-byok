@@ -32,36 +32,43 @@ use crate::tray;
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 const AUTOSTART_ARG: &str = "--autostart";
 
-pub(crate) struct DesktopRuntime {
+struct DesktopRuntime {
     shutdown: CancellationToken,
     server: Mutex<Option<JoinHandle<Result<()>>>>,
     exiting: AtomicBool,
     server_addr: std::net::SocketAddr,
+    #[cfg(target_os = "macos")]
     show_dock_icon: AtomicBool,
 }
 
+#[cfg(target_os = "macos")]
 impl DesktopRuntime {
-    pub(crate) fn show_dock_icon(&self) -> bool {
+    fn show_dock_icon(&self) -> bool {
         self.show_dock_icon.load(Ordering::Acquire)
     }
 }
 
 #[tauri::command]
-fn set_dock_icon_visible(app: AppHandle, visible: bool) {
-    app.state::<DesktopRuntime>()
-        .show_dock_icon
-        .store(visible, Ordering::Release);
+fn set_dock_icon_visible(app: AppHandle, visible: bool) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
-    apply_dock_icon_visibility(&app, visible);
+    {
+        apply_dock_icon_visibility(&app, visible)?;
+        app.state::<DesktopRuntime>()
+            .show_dock_icon
+            .store(visible, Ordering::Release);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, visible);
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) {
+fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     if visible {
-        if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
-            tracing::warn!(%error, "failed to show the Dock icon");
-        }
-        return;
+        return app.set_activation_policy(tauri::ActivationPolicy::Regular);
     }
 
     let window_visible = app
@@ -69,13 +76,9 @@ pub(crate) fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) {
         .and_then(|window| window.is_visible().ok())
         .unwrap_or(false);
     if !window_visible {
-        if let Err(error) = app.hide() {
-            tracing::warn!(%error, "failed to resign active state before hiding the Dock icon");
-        }
+        app.hide()?;
     }
-    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
-        tracing::warn!(%error, "failed to hide the Dock icon");
-    }
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory)
 }
 
 #[tauri::command]
@@ -185,7 +188,9 @@ fn create_main_window(
 pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     if app.state::<DesktopRuntime>().show_dock_icon() {
-        apply_dock_icon_visibility(app, true);
+        if let Err(error) = apply_dock_icon_visibility(app, true) {
+            tracing::warn!(%error, "failed to show the Dock icon");
+        }
     }
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
@@ -302,6 +307,7 @@ pub fn run() -> ExitCode {
                 server: Mutex::new(Some(task)),
                 exiting: AtomicBool::new(false),
                 server_addr: address,
+                #[cfg(target_os = "macos")]
                 show_dock_icon: AtomicBool::new(desktop_settings.show_dock_icon),
             });
             if desktop_settings.silent_start && started_by_autostart {
@@ -331,7 +337,9 @@ pub fn run() -> ExitCode {
         } if label == MAIN_WINDOW_LABEL => {
             let runtime = app.state::<DesktopRuntime>();
             if !runtime.show_dock_icon() {
-                apply_dock_icon_visibility(app, false);
+                if let Err(error) = apply_dock_icon_visibility(app, false) {
+                    tracing::warn!(%error, "failed to hide the Dock icon");
+                }
             }
         }
         // code 为 None 表示所有窗口已被关闭(轻量模式),阻止退出,
