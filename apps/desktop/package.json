@@ -41,8 +41,8 @@
     "zrender": "^6.1.0"
   },
   "devDependencies": {
-    "@babel/parser": "^7.29.8",
-    "@babel/traverse": "^7.29.8",
+    "@babel/parser": "^8.0.8",
+    "@babel/traverse": "^8.0.7",
     "@tauri-apps/cli": "^2.12.4",
     "@types/babel__traverse": "^7.28.0",
     "@types/node": "^26.1.2",
