@@ -27,6 +27,6 @@ Write the release notes in `.github/release-notes/MAJOR.MINOR.PATCH.md`. The wor
 
 Run `node .github/scripts/check-release.mjs`, then validate the desktop build with `npm --prefix apps/desktop run tauri:build -- --debug --no-bundle`.
 
-The maintainer publishes releases by pushing a matching `vMAJOR.MINOR.PATCH` tag after CI passes on `main`. The release workflow builds all platforms, verifies the updater manifests, and publishes only after every build succeeds. Ordinary commits do not publish releases.
+The maintainer publishes releases by pushing a matching `vMAJOR.MINOR.PATCH` tag after CI passes on `main`. The release workflow builds all platforms, verifies the updater manifests, and publishes only after every build succeeds. Ordinary commits do not publish releases. To recover an unpublished release after fixing the workflow, run `Release desktop app` manually from `main` with its existing tag. The workflow validates and builds the tag commit without moving it; published versions are rejected.
 
 Updater signing uses the repository's `TAURI_SIGNING_PRIVATE_KEY` Actions secret. Its public key must match `tauri.conf.json`. Keep a secure backup of the private key outside Git; changing it breaks updates for installed clients. These signatures are separate from Apple notarization and Windows code signing.
