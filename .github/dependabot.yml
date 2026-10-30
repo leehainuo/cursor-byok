@@ -31,12 +31,18 @@ updates:
         patterns: ["@babel/*", "@types/babel__*"]
       tauri:
         patterns: ["@tauri-apps/*"]
-      development-patches:
-        dependency-type: development
+      patches:
+        patterns: ["*"]
         update-types: [patch]
-      production-patches:
-        dependency-type: production
-        update-types: [patch]
+        # Keep family groups disjoint from the general patch group.
+        exclude-patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+          - "@babel/*"
+          - "@types/babel__*"
+          - "@tauri-apps/*"
     open-pull-requests-limit: 5
   - package-ecosystem: cargo
     directory: /
@@ -56,5 +62,14 @@ updates:
       patches:
         patterns: ["*"]
         update-types: [patch]
-        exclude-patterns: ["sqlx*", "similar", "json5", "auto-launch"]
+        exclude-patterns:
+          - prost
+          - "prost-*"
+          - "protoc-bin-vendored*"
+          - tauri
+          - "tauri-*"
+          - "sqlx*"
+          - similar
+          - json5
+          - auto-launch
     open-pull-requests-limit: 5
