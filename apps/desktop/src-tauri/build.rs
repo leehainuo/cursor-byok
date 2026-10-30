@@ -3,6 +3,7 @@ fn main() {
         "open_terminal_with_command",
         "check_portable_update",
         "install_portable_update",
+        "set_dock_icon_visible",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Tauri application")

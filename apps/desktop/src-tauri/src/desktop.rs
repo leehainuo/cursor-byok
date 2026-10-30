@@ -37,6 +37,48 @@ struct DesktopRuntime {
     server: Mutex<Option<JoinHandle<Result<()>>>>,
     exiting: AtomicBool,
     server_addr: std::net::SocketAddr,
+    #[cfg(target_os = "macos")]
+    show_dock_icon: AtomicBool,
+}
+
+#[cfg(target_os = "macos")]
+impl DesktopRuntime {
+    fn show_dock_icon(&self) -> bool {
+        self.show_dock_icon.load(Ordering::Acquire)
+    }
+}
+
+#[tauri::command]
+fn set_dock_icon_visible(app: AppHandle, visible: bool) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        apply_dock_icon_visibility(&app, visible)?;
+        app.state::<DesktopRuntime>()
+            .show_dock_icon
+            .store(visible, Ordering::Release);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, visible);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) -> tauri::Result<()> {
+    if visible {
+        return app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    }
+
+    let window_visible = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if !window_visible {
+        app.hide()?;
+    }
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory)
 }
 
 #[tauri::command]
@@ -144,16 +186,22 @@ fn create_main_window(
 
 /// 按需打开主窗口:webview 仅在需要界面时创建,关闭窗口即销毁释放内存。
 pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+    #[cfg(target_os = "macos")]
+    app.show()?;
+
+    let window = if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-    let address = app.state::<DesktopRuntime>().server_addr;
-    let window = create_main_window(app, address)?;
+        window
+    } else {
+        let address = app.state::<DesktopRuntime>().server_addr;
+        create_main_window(app, address)?
+    };
     window.show()?;
     window.set_focus()?;
+
+    #[cfg(target_os = "macos")]
+    apply_dock_icon_visibility(app, app.state::<DesktopRuntime>().show_dock_icon())?;
+
     Ok(())
 }
 
@@ -197,6 +245,7 @@ pub fn run() -> ExitCode {
             open_terminal_with_command,
             crate::update::check_portable_update,
             crate::update::install_portable_update,
+            set_dock_icon_visible,
         ])
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if !args.iter().any(|arg| arg == AUTOSTART_ARG) {
@@ -239,8 +288,9 @@ pub fn run() -> ExitCode {
                 tauri::async_runtime::block_on(server.store().desktop_settings())
                     .unwrap_or_default();
             #[cfg(target_os = "macos")]
-            app.handle()
-                .set_dock_visibility(desktop_settings.show_dock_icon)?;
+            if !desktop_settings.show_dock_icon {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
             let shutdown = CancellationToken::new();
             let server_shutdown = shutdown.clone();
             let app_handle = app.handle().clone();
@@ -257,6 +307,8 @@ pub fn run() -> ExitCode {
                 server: Mutex::new(Some(task)),
                 exiting: AtomicBool::new(false),
                 server_addr: address,
+                #[cfg(target_os = "macos")]
+                show_dock_icon: AtomicBool::new(desktop_settings.show_dock_icon),
             });
             if desktop_settings.silent_start && started_by_autostart {
                 tracing::info!("silent autostart enabled; starting without the main window");
@@ -277,6 +329,19 @@ pub fn run() -> ExitCode {
     };
 
     app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } if label == MAIN_WINDOW_LABEL => {
+            let runtime = app.state::<DesktopRuntime>();
+            if !runtime.show_dock_icon() {
+                if let Err(error) = apply_dock_icon_visibility(app, false) {
+                    tracing::warn!(%error, "failed to hide the Dock icon");
+                }
+            }
+        }
         // code 为 None 表示所有窗口已被关闭(轻量模式),阻止退出,
         // 转发服务继续在托盘后台运行;code 为 Some 时是显式退出请求。
         RunEvent::ExitRequested { code, api, .. } => match code {
@@ -307,10 +372,7 @@ pub fn run() -> ExitCode {
             }
         },
         #[cfg(target_os = "macos")]
-        RunEvent::Reopen {
-            has_visible_windows: false,
-            ..
-        } => {
+        RunEvent::Reopen { .. } => {
             let _ = open_main_window(app);
         }
         _ => {}
