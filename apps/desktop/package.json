@@ -21,8 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
-    "@iconify/json": "^2.2.519",
-    "@iconify/react": "^6.0.2",
+    "@iconify/json": "^2.2.548",
+    "@iconify/react": "^6.0.3",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
@@ -36,7 +36,7 @@
     "react": "^19.2.8",
     "react-css-marquee": "^1.0.1",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2",
+    "react-router-dom": "^7.18.4",
     "sortablejs": "^1.15.7",
     "zrender": "^6.1.0"
   },
