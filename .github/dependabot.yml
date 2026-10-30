@@ -4,23 +4,57 @@ updates:
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    commit-message:
+      prefix: chore(deps)
     groups:
       actions:
         patterns: ["*"]
+        update-types: [minor, patch]
     open-pull-requests-limit: 3
   - package-ecosystem: npm
     directory: /apps/desktop
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    commit-message:
+      prefix: chore(deps)
     groups:
-      development:
+      # Keep related runtime, tooling, and type packages in the same review.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      babel:
+        patterns: ["@babel/*", "@types/babel__*"]
+      tauri:
+        patterns: ["@tauri-apps/*"]
+      development-patches:
         dependency-type: development
+        update-types: [patch]
+      production-patches:
+        dependency-type: production
+        update-types: [patch]
     open-pull-requests-limit: 5
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    commit-message:
+      prefix: chore(deps)
     groups:
-      rust:
-        update-types: [minor, patch]
+      # Code generation and runtime crates must be reviewed together.
+      protobuf:
+        patterns: ["prost", "prost-*", "protoc-bin-vendored*"]
+      tauri:
+        patterns: ["tauri", "tauri-*"]
+      patches:
+        patterns: ["*"]
+        update-types: [patch]
+        exclude-patterns: ["sqlx*", "similar", "json5", "auto-launch"]
     open-pull-requests-limit: 5
