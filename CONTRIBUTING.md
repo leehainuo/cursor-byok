@@ -19,6 +19,16 @@ Before opening a pull request:
 make check
 ```
 
+## Dependency updates
+
+Dependabot checks on Mondays at 09:00 Asia/Shanghai. Ordinary patch updates are grouped; ordinary minor and major updates get individual PRs. React, Babel, Tauri, and Protobuf packages are grouped by family at every version level, including major upgrades. SQLx, similar, json5, and auto-launch stay out of the general Rust patch group. Security updates remain enabled and are not included in version-update groups.
+
+All updates require passing CI and maintainer review. Patch updates need checks of affected behavior; minor updates need runtime regression checks; major updates also need a migration review. React and React DOM must stay aligned, and Protobuf code generation and runtime versions must remain compatible. Tauri's npm and Cargo groups are separate PRs and must be checked together when their requirements change.
+
+For sensitive changes, verify Cursor protocol encoding, database behavior, file diffs, preservation of Cursor settings, or desktop startup/relaunch/update behavior as applicable. Check Node.js requirements when upgrading build tools. A green CI run does not replace these checks, and dependency PRs are not automatically merged.
+
+依赖更新按普通补丁、独立版本升级和关联依赖家族组织。所有更新都需要 CI 和维护者审查；涉及协议、数据库、文件差异、Cursor 配置或桌面生命周期时，需补充对应的运行验证。
+
 ## Releases
 
 Desktop versions must match in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`, and the desktop entry in `Cargo.lock`.
