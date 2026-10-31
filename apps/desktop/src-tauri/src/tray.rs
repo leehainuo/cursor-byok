@@ -18,8 +18,14 @@ pub fn create(app: &mut App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &separator, &quit])?;
 
+    #[cfg(target_os = "macos")]
+    let icon = tauri::include_image!("./icons/tray-macos.png");
+    #[cfg(not(target_os = "macos"))]
+    let icon = tauri::include_image!("./icons/32x32.png");
+
     TrayIconBuilder::with_id("main")
-        .icon(tauri::include_image!("./icons/32x32.png"))
+        .icon(icon)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Cursor BYOK")
         .menu(&menu)
         .show_menu_on_left_click(cfg!(target_os = "macos"))
