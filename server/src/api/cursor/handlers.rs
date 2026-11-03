@@ -15,9 +15,10 @@ use crate::{
         run_sse,
     },
     cursor::{
+        inference::{decode_append, InferenceRoute, InferenceService},
         protocol::{
             connect,
-            proto::{agent::v1 as agent, aiserver::v1 as ai},
+            proto::{agent::v1 as agent, aiserver::v1 as ai, inference},
         },
         services::{
             account, analytics, commit_message, compatibility, entitlement::FreeEntitlementCache,
@@ -44,9 +45,14 @@ fn router_with_proxy(
 ) -> Router {
     let web_cache = registry.web_cache().router();
     let free_entitlements = FreeEntitlementCache::default();
+    let inference_service = InferenceService::new(registry.clone());
     Router::new()
         .route("/__byok-api__/healthz", get(health))
         .route("/agent.v1.AgentService/RunSSE", post(run_sse_handler))
+        .route(
+            "/aiserver.v1.InferenceService/RunInferenceSSE",
+            post(run_inference_sse_handler),
+        )
         .route("/aiserver.v1.BidiService/BidiAppend", post(bidi_handler))
         .route(
             "/aiserver.v1.AiService/AvailableDocs",
@@ -163,6 +169,7 @@ fn router_with_proxy(
         .layer(Extension(proxy))
         .layer(Extension(knowledge_service))
         .layer(Extension(free_entitlements))
+        .layer(Extension(inference_service))
         .with_state(registry)
         .merge(web_cache)
 }
@@ -225,13 +232,125 @@ async fn run_sse_handler(
     }
 }
 
-async fn bidi_handler(
-    State(registry): State<TransportRegistry>,
+async fn run_inference_sse_handler(
+    Extension(inference_service): Extension<InferenceService>,
     Extension(proxy): Extension<CursorProxy>,
     request: Request<Body>,
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
+    let request: agent::BidiRequestId = connect::decode_unary(&body)?;
+    let request_id = request.request_id;
+    match inference_service.wait_route(&request_id).await {
+        InferenceRoute::Upstream => {
+            proxy::forward(
+                Extension(proxy),
+                Request::from_parts(parts, Body::from(body)),
+            )
+            .await
+        }
+        InferenceRoute::Local(run) => {
+            let mut receiver = run.subscribe();
+            let cleanup = InferenceCleanup(inference_service, request_id);
+            let stream = async_stream::stream! {
+                let _cleanup = cleanup;
+                while let Some(frame) = receiver.recv().await {
+                    let complete = frame.first().is_some_and(|flag| flag & connect::END_STREAM_FLAG != 0);
+                    yield Ok::<Bytes, std::convert::Infallible>(frame);
+                    if complete {
+                        return;
+                    }
+                }
+            };
+            let mut response = Response::new(Body::from_stream(stream));
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream"),
+            );
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            response
+                .headers_mut()
+                .insert("connect-protocol-version", HeaderValue::from_static("1"));
+            Ok(response)
+        }
+    }
+}
+
+struct InferenceCleanup(InferenceService, String);
+
+impl Drop for InferenceCleanup {
+    fn drop(&mut self) {
+        self.0.finish(&self.1);
+    }
+}
+
+async fn bidi_handler(
+    State(registry): State<TransportRegistry>,
+    Extension(proxy): Extension<CursorProxy>,
+    Extension(inference_service): Extension<InferenceService>,
+    request: Request<Body>,
+) -> Result<Response<Body>> {
+    let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
+    let request_id = request
+        .request_id
+        .as_ref()
+        .map(|id| id.request_id.as_str())
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| crate::Error::Protocol("BidiAppend request_id is required".into()))?;
+    let payload = if request.data_binary.is_empty() {
+        hex::decode(&request.data)
+            .map_err(|error| crate::Error::Protocol(format!("invalid BidiAppend hex: {error}")))?
+    } else {
+        request.data_binary.clone()
+    };
+    let current_route = inference_service.route(request_id);
+    let candidate = decode_append(&payload).ok();
+    let starts_inference = candidate.as_ref().is_some_and(|message| {
+        matches!(
+            message.message.as_ref(),
+            Some(inference::run_inference_client_message::Message::RunRequest(run))
+                if !run.conversation_id.is_empty()
+                    && run.requested_model.as_ref().is_some_and(|model| !model.model_id.is_empty())
+        )
+    });
+    if current_route.is_some() || starts_inference {
+        let message = candidate
+            .ok_or_else(|| crate::Error::Protocol("invalid RunInference client message".into()))?;
+        let route = match current_route {
+            Some(route) => route,
+            None => inference_service.begin(request_id, &message).await?,
+        };
+        match route {
+            InferenceRoute::Local(run) => {
+                run.append(request.append_seqno, message).await?;
+                let mut response = Response::new(Body::empty());
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/proto"),
+                );
+                return Ok(response);
+            }
+            InferenceRoute::Upstream => {
+                let finished = matches!(
+                    message.message,
+                    Some(inference::run_inference_client_message::Message::FinishRun(
+                        _
+                    ))
+                );
+                let response = proxy::forward(
+                    Extension(proxy),
+                    Request::from_parts(parts, Body::from(body)),
+                )
+                .await;
+                if finished {
+                    inference_service.finish(request_id);
+                }
+                return response;
+            }
+        }
+    }
     let decoded = bidi::decode(&request)?;
     let first_model = decoded.model_id().map(str::to_owned);
     let conversation_id = decoded.conversation_id().map(str::to_owned);
@@ -359,6 +478,10 @@ fn trace_outcome(
     }
     metadata
 }
+
+#[cfg(test)]
+#[path = "handlers/run_inference_tests.rs"]
+mod run_inference_tests;
 
 async fn buffered(request: Request<Body>) -> Result<(axum::http::request::Parts, Bytes)> {
     let (parts, body) = request.into_parts();

@@ -13,11 +13,8 @@ use sha2::{Digest, Sha256};
 use crate::{api::cursor::proxy, Error, Result};
 
 pub const BOOTSTRAP_STATSIG_PATH: &str = "/aiserver.v1.AnalyticsService/BootstrapStatsig";
-const AGENT_GATES: [(&str, bool); 2] = [
-    ("nal_agent_retries", true),
-    // The client-owned loop sends RunInference rather than AgentRunRequest over BidiAppend.
-    ("agent_host_local_loop", false),
-];
+const AGENT_GATES: [(&str, bool); 2] =
+    [("nal_agent_retries", true), ("agent_host_local_loop", true)];
 
 #[derive(Clone, PartialEq, Message)]
 struct BootstrapStatsigResponse {
