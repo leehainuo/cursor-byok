@@ -19,6 +19,8 @@ pub enum ModelEvent {
     ThinkingStart,
     ThinkingDelta(String),
     ThinkingEnd,
+    ThinkingSignature(String),
+    RedactedThinking(String),
     ToolCallStart {
         index: usize,
         call_id: String,

@@ -160,6 +160,8 @@ pub async fn consume_model_cycle(
                     Err("provider emitted ThinkingEnd before ThinkingStart")
                 }
             }
+            ModelEvent::ThinkingSignature(_) => Ok(()),
+            ModelEvent::RedactedThinking(_) => Ok(()),
             ModelEvent::ToolCallStart {
                 index,
                 call_id,

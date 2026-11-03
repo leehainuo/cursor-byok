@@ -6,6 +6,14 @@ pub mod agent {
     }
 }
 
+pub mod inference {
+    #[allow(clippy::large_enum_variant)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/aiserver.v1.rs"));
+    }
+    pub use v1::*;
+}
+
 pub mod aiserver {
     pub mod v1 {
         #[derive(Clone, PartialEq, ::prost::Message)]

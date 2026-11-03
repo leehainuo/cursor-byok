@@ -184,6 +184,8 @@ fn event_name(event: &super::ModelEvent) -> &'static str {
         super::ModelEvent::ThinkingStart => "ThinkingStart",
         super::ModelEvent::ThinkingDelta(_) => "ThinkingDelta",
         super::ModelEvent::ThinkingEnd => "ThinkingEnd",
+        super::ModelEvent::ThinkingSignature(_) => "ThinkingSignature",
+        super::ModelEvent::RedactedThinking(_) => "RedactedThinking",
         super::ModelEvent::ToolCallStart { .. } => "ToolCallStart",
         super::ModelEvent::ToolCallArgumentsDelta { .. } => "ToolCallArgsDelta",
         super::ModelEvent::ToolCallEnd { .. } => "ToolCallEnd",

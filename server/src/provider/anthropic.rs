@@ -152,7 +152,10 @@ impl Provider for AnthropicProvider {
                                 thinking_signatures.insert(index, String::new());
                                 yield ModelEvent::ThinkingStart;
                             }
-                            "redacted_thinking" => thinking_blocks.push(block.clone()),
+                            "redacted_thinking" => {
+                                thinking_blocks.push(block.clone());
+                                yield ModelEvent::RedactedThinking(required_string(block, "data")?.into());
+                            }
                             "tool_use" => {
                                 saw_tool = true;
                                 yield ModelEvent::ToolCallStart {
@@ -286,14 +289,16 @@ fn close_anthropic_block(
         "thinking" => {
             let thinking = thinking_text.remove(&index).unwrap_or_default();
             let signature = thinking_signatures.remove(&index).unwrap_or_default();
+            let mut events = vec![ModelEvent::ThinkingEnd];
             if !signature.is_empty() {
                 thinking_blocks.push(json!({
                     "type": "thinking",
                     "thinking": thinking,
                     "signature": signature,
                 }));
+                events.push(ModelEvent::ThinkingSignature(signature));
             }
-            vec![ModelEvent::ThinkingEnd]
+            events
         }
         "tool_use" => vec![ModelEvent::ToolCallEnd { index }],
         _ => Vec::new(),

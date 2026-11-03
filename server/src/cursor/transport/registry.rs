@@ -38,6 +38,7 @@ struct RegistryInner {
     traces: CursorTraceService,
     web_cache: WebCache,
     plugins: Option<PluginRegistry>,
+    provider: Arc<dyn Provider>,
     conversations: ConversationRegistry,
 }
 
@@ -119,11 +120,12 @@ impl TransportRegistry {
                 traces: CursorTraceService::new(store.clone()),
                 conversations: ConversationRegistry::new(
                     store.clone(),
-                    provider,
+                    provider.clone(),
                     compiler,
                     web_cache.clone(),
                     local_rules_dir,
                 ),
+                provider,
                 store,
                 web_cache,
                 plugins,
@@ -133,6 +135,10 @@ impl TransportRegistry {
 
     pub fn store(&self) -> &Store {
         &self.inner.store
+    }
+
+    pub fn provider(&self) -> Arc<dyn Provider> {
+        self.inner.provider.clone()
     }
 
     pub fn trace(
