@@ -44,6 +44,7 @@ pub struct ExecContext {
     pub root_conversation_id: String,
     pub default_subagent_model: String,
     pub subagent_model: Option<SubagentModel>,
+    pub byok_models: Vec<ByokModel>,
     pub allow_subagents: bool,
     pub subagents_disabled: bool,
     pub terminals_folder: String,
@@ -63,6 +64,43 @@ pub struct McpRoute {
 pub enum SubagentModel {
     Model(String),
     Disabled,
+}
+
+/// A configured BYOK model that a Task call may select by name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ByokModel {
+    pub hash: String,
+    pub model_id: String,
+    pub display_name: String,
+}
+
+impl ByokModel {
+    fn matches_exactly(&self, requested: &str) -> bool {
+        self.hash == requested
+            || self.model_id == requested
+            || model_key(&self.display_name) == model_key(requested)
+    }
+
+    fn matches_without_suffix(&self, requested: &str) -> bool {
+        model_key(strip_suffix(&self.display_name)) == model_key(strip_suffix(requested))
+    }
+}
+
+/// Case-insensitive display-name key where spaces and hyphens are equivalent.
+fn model_key(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+/// Removes one trailing parenthesized suffix such as `(TT Switch)`.
+fn strip_suffix(name: &str) -> &str {
+    let name = name.trim_end();
+    match name.strip_suffix(')').and_then(|rest| rest.rfind('(')) {
+        Some(start) => name[..start].trim_end(),
+        None => name,
+    }
 }
 
 impl ExecContext {
@@ -88,15 +126,18 @@ impl ExecContext {
         if self.task_disabled(call) {
             return Ok(call.clone());
         }
-        let model = match &self.subagent_model {
-            Some(SubagentModel::Model(model)) => model.clone(),
-            Some(SubagentModel::Disabled) => unreachable!("disabled Task returned above"),
-            None => arguments
-                .get("model")
-                .and_then(serde_json::Value::as_str)
-                .filter(|model| *model != "inherit")
-                .unwrap_or(&self.default_subagent_model)
-                .to_string(),
+        let explicit = arguments
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|model| !model.is_empty() && *model != "inherit");
+        let model = match (explicit, &self.subagent_model) {
+            (Some(requested), _) => self.resolve_byok_model(requested).to_string(),
+            (None, Some(SubagentModel::Model(model))) => model.clone(),
+            (None, Some(SubagentModel::Disabled)) => {
+                unreachable!("disabled Task returned above")
+            }
+            (None, None) => self.default_subagent_model.clone(),
         };
         if model.is_empty() {
             return Err(Error::Protocol(format!(
@@ -110,6 +151,20 @@ impl ExecContext {
             .expect("Task arguments were validated")
             .insert("model".into(), serde_json::Value::String(model));
         Ok(prepared)
+    }
+
+    /// Maps a Task `model` argument to a configured BYOK model hash.  Unknown
+    /// names pass through unchanged so Cursor model slugs keep working.
+    fn resolve_byok_model<'a>(&'a self, requested: &'a str) -> &'a str {
+        self.byok_models
+            .iter()
+            .find(|model| model.matches_exactly(requested))
+            .or_else(|| {
+                self.byok_models
+                    .iter()
+                    .find(|model| model.matches_without_suffix(requested))
+            })
+            .map_or(requested, |model| model.hash.as_str())
     }
 }
 
@@ -364,4 +419,93 @@ pub(crate) fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(arguments: serde_json::Value) -> ToolCall {
+        ToolCall {
+            index: 0,
+            call_id: "call-1".into(),
+            model_call_id: "model-call-1".into(),
+            name: "Task".into(),
+            arguments_text: arguments.to_string(),
+            arguments,
+            argument_error: None,
+        }
+    }
+
+    fn context(subagent_model: Option<SubagentModel>) -> ExecContext {
+        ExecContext {
+            default_subagent_model: "parent-hash".into(),
+            subagent_model,
+            byok_models: vec![ByokModel {
+                hash: "aaaa".into(),
+                model_id: "gpt-x".into(),
+                display_name: "My Model (TT Switch)".into(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn prepared_model(context: &ExecContext, arguments: serde_json::Value) -> String {
+        context.prepare_call(&task(arguments)).unwrap().arguments["model"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn explicit_byok_model_overrides_cursor_setting() {
+        let context = context(Some(SubagentModel::Model("grok-x".into())));
+        for requested in [
+            "aaaa",
+            "gpt-x",
+            "My Model (TT Switch)",
+            "my-model",
+            "MY MODEL",
+        ] {
+            assert_eq!(
+                prepared_model(&context, serde_json::json!({ "model": requested })),
+                "aaaa",
+                "{requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_or_inherit_model_falls_back_to_setting_then_parent() {
+        let with_setting = context(Some(SubagentModel::Model("grok-x".into())));
+        let without_setting = context(None);
+        for arguments in [
+            serde_json::json!({}),
+            serde_json::json!({ "model": "inherit" }),
+            serde_json::json!({ "model": "" }),
+        ] {
+            assert_eq!(prepared_model(&with_setting, arguments.clone()), "grok-x");
+            assert_eq!(prepared_model(&without_setting, arguments), "parent-hash");
+        }
+    }
+
+    #[test]
+    fn unknown_explicit_model_passes_through() {
+        let context = context(Some(SubagentModel::Model("grok-x".into())));
+        assert_eq!(
+            prepared_model(
+                &context,
+                serde_json::json!({ "model": "composer-2.5-fast" })
+            ),
+            "composer-2.5-fast"
+        );
+    }
+
+    #[test]
+    fn disabled_setting_keeps_task_unchanged() {
+        let context = context(Some(SubagentModel::Disabled));
+        let call = task(serde_json::json!({ "model": "aaaa" }));
+        assert!(context.task_disabled(&call));
+        assert_eq!(context.prepare_call(&call).unwrap(), call);
+    }
 }

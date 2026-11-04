@@ -11,7 +11,7 @@ use crate::{
         protocol::proto::agent::v1 as pb,
         services::blob_sync::BlobSynchronizer,
         services::context_sync::RequestContextSynchronizer,
-        tools::runtime::{ExecContext, SubagentModel},
+        tools::runtime::{ByokModel, ExecContext, SubagentModel},
     },
     model::{
         CanonicalMessage, ContentPart, ConversationId, MessageContent, Origin, PreparedRun,
@@ -150,6 +150,16 @@ pub(crate) async fn prepare(
         .is_some_and(|(_, selection)| {
             matches!(selection, crate::model::SubagentModelOverride::Disabled)
         });
+    let byok_models = store
+        .models()
+        .await?
+        .into_iter()
+        .map(|model| ByokModel {
+            hash: model.model_hash,
+            model_id: model.model_id,
+            display_name: model.display_name,
+        })
+        .collect::<Vec<_>>();
     let mut checkpoint_prompt = compiler.prompt_spec(
         checkpoint_mode,
         &model,
@@ -161,6 +171,8 @@ pub(crate) async fn prepare(
     )?;
     if subagents_disabled {
         checkpoint_prompt.tools.retain(|tool| tool.name != "Task");
+    } else {
+        list_byok_subagent_models(&mut checkpoint_prompt, &byok_models);
     }
     let prompt = if compacting {
         compiler.prompt_spec(Mode::Compaction, &model, &[], false)?
@@ -327,6 +339,7 @@ pub(crate) async fn prepare(
         &model.model_id,
         subagents_disabled,
         &subagent_model_overrides,
+        byok_models,
     );
     Ok((
         PreparedRun {
@@ -575,6 +588,26 @@ pub(super) fn mode_from_proto(mode: i32) -> Result<Mode> {
     }
 }
 
+/// Lists configured BYOK models in the Task tool's "Subagent model" section so
+/// the Agent can pass their display names as `model`.
+fn list_byok_subagent_models(prompt: &mut PromptSpec, byok_models: &[ByokModel]) {
+    const ANCHOR: &str = "\n- inherit\n";
+    if byok_models.is_empty() {
+        return;
+    }
+    let Some(task) = prompt.tools.iter_mut().find(|tool| tool.name == "Task") else {
+        return;
+    };
+    let Some(position) = task.description.find(ANCHOR) else {
+        return;
+    };
+    let lines = byok_models
+        .iter()
+        .map(|model| format!("- {}\n", model.display_name))
+        .collect::<String>();
+    task.description.insert_str(position + ANCHOR.len(), &lines);
+}
+
 fn exec_context(
     request: &pb::AgentRunRequest,
     request_context: &pb::RequestContext,
@@ -585,6 +618,7 @@ fn exec_context(
         crate::model::SubagentKind,
         crate::model::SubagentModelOverride,
     )],
+    byok_models: Vec<ByokModel>,
 ) -> ExecContext {
     let subagent_model = overrides.first().map(|(_, value)| match value {
         crate::model::SubagentModelOverride::Explicit(model) => {
@@ -601,6 +635,7 @@ fn exec_context(
             .unwrap_or_else(|| conversation_id.to_string()),
         default_subagent_model: model_id.into(),
         subagent_model,
+        byok_models,
         allow_subagents: request.subagent_type_name.is_none() && !subagents_disabled,
         subagents_disabled,
         terminals_folder: request_context
@@ -610,5 +645,53 @@ fn exec_context(
             .unwrap_or_default(),
         admin_command_denylist: request_context.admin_command_denylist.clone(),
         mcp_routes: context::meta_mcp_routes(request_context),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ToolDefinition;
+
+    fn prompt(description: &str) -> PromptSpec {
+        PromptSpec {
+            instructions: String::new(),
+            tools: vec![ToolDefinition {
+                name: "Task".into(),
+                description: description.into(),
+                parameters: serde_json::json!({}),
+            }],
+        }
+    }
+
+    fn byok(name: &str) -> ByokModel {
+        ByokModel {
+            hash: format!("hash-{name}"),
+            model_id: name.into(),
+            display_name: name.into(),
+        }
+    }
+
+    #[test]
+    fn lists_byok_models_after_inherit() {
+        let mut prompt = prompt("Subagent model\n\n- inherit\n- composer-2.5-fast\n\nrest");
+        list_byok_subagent_models(&mut prompt, &[byok("Model A"), byok("Model B")]);
+        assert_eq!(
+            prompt.tools[0].description,
+            "Subagent model\n\n- inherit\n\
+             - Model A\n\
+             - Model B\n\
+             - composer-2.5-fast\n\nrest"
+        );
+    }
+
+    #[test]
+    fn leaves_description_unchanged_without_models_or_anchor() {
+        let mut empty = prompt("- inherit\n- x");
+        list_byok_subagent_models(&mut empty, &[]);
+        assert_eq!(empty.tools[0].description, "- inherit\n- x");
+        let mut anchorless = prompt("no list here");
+        list_byok_subagent_models(&mut anchorless, &[byok("Model A")]);
+        assert_eq!(anchorless.tools[0].description, "no list here");
     }
 }
