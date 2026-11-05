@@ -17,7 +17,7 @@ const CATEGORIES: [(&str, &str); 8] = [
     ("summarized_conversation", "Summarized conversation"),
     ("conversation", "Conversation"),
 ];
-const EASTER_EGG_CATEGORY: (&str, &str) = ("leookun", "@leookun stole 1 token 😂");
+const EASTER_EGG_CATEGORY: (&str, &str) = ("leehainuo", "@leehainuo stole 1 token 🥰");
 
 const SYSTEM: usize = 0;
 const TOOLS: usize = 1;
