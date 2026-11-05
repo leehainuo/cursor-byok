@@ -492,36 +492,11 @@ async fn buffered(request: Request<Body>) -> Result<(axum::http::request::Parts,
 }
 
 fn parent_headers(headers: &HeaderMap) -> Result<Option<TransportParent>> {
-    let request_id = header_text(headers, "x-parent-request-id")?.filter(|value| !value.is_empty());
-    let tool_call_id =
-        header_text(headers, "x-parent-agent-tool-call-id")?.filter(|value| !value.is_empty());
-    match (request_id, tool_call_id) {
-        (None, None) => Ok(None),
-        (Some(request_id), Some(tool_call_id)) => Ok(Some(TransportParent {
-            request_id: request_id.into(),
+    Ok(header_text(headers, "x-parent-agent-tool-call-id")?
+        .filter(|value| !value.is_empty())
+        .map(|tool_call_id| TransportParent {
             tool_call_id: tool_call_id.into(),
-        })),
-        // Cursor adds each header independently.  Task subagents can send only
-        // the tool call id; `CheckpointBuilder` is the sole consumer of the
-        // parent and reads only `tool_call_id`.
-        (None, Some(tool_call_id)) => {
-            tracing::warn!(
-                tool_call_id,
-                "Cursor subagent request has no x-parent-request-id; using tool call id"
-            );
-            Ok(Some(TransportParent {
-                request_id: tool_call_id.into(),
-                tool_call_id: tool_call_id.into(),
-            }))
-        }
-        (Some(request_id), None) => {
-            tracing::warn!(
-                request_id,
-                "Cursor request has x-parent-request-id without x-parent-agent-tool-call-id; ignoring parent"
-            );
-            Ok(None)
-        }
-    }
+        }))
 }
 
 fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>> {
@@ -547,26 +522,25 @@ mod parent_header_tests {
         headers
     }
 
-    fn parent(request_id: &str, tool_call_id: &str) -> TransportParent {
+    fn parent(tool_call_id: &str) -> TransportParent {
         TransportParent {
-            request_id: request_id.into(),
             tool_call_id: tool_call_id.into(),
         }
     }
 
     #[test]
-    fn both_headers_are_kept() {
+    fn both_headers_preserve_the_parent_tool_call() {
         assert_eq!(
             parent_headers(&headers(Some("req"), Some("tool"))).unwrap(),
-            Some(parent("req", "tool"))
+            Some(parent("tool"))
         );
     }
 
     #[test]
-    fn missing_request_id_falls_back_to_tool_call_id() {
+    fn missing_request_id_keeps_the_parent_tool_call() {
         assert_eq!(
             parent_headers(&headers(None, Some("tool"))).unwrap(),
-            Some(parent("tool", "tool"))
+            Some(parent("tool"))
         );
     }
 
@@ -581,7 +555,7 @@ mod parent_header_tests {
         assert_eq!(parent_headers(&headers(Some(""), Some(""))).unwrap(), None);
         assert_eq!(
             parent_headers(&headers(Some(""), Some("tool"))).unwrap(),
-            Some(parent("tool", "tool"))
+            Some(parent("tool"))
         );
     }
 }

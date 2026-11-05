@@ -193,7 +193,12 @@ impl ConversationRuntime {
                         }
                     }
                     TransportCommand::Append { seqno, message } => {
-                        for (_seqno, message) in inbox.push(seqno, *message) {
+                        for (seqno, mut message) in inbox.push(seqno, *message) {
+                            super::input::assign_message_id(
+                                &mut message,
+                                handle.request_id(),
+                                seqno,
+                            );
                             {
                                 match message.message {
                                     Some(pb::agent_client_message::Message::RunRequest(
@@ -603,7 +608,7 @@ fn finish_transport(handle: &TransportHandle, finish: TransportFinish) {
 fn spawn_run_request(
     registry: ConversationRegistry,
     handle: TransportHandle,
-    mut request: pb::AgentRunRequest,
+    request: pb::AgentRunRequest,
     dependencies: ConversationDependencies,
     blob_sync: BlobSynchronizer,
     context_sync: RequestContextSynchronizer,
@@ -612,7 +617,6 @@ fn spawn_run_request(
     results: ToolResultReceiver,
     runtime_actions: mpsc::UnboundedReceiver<compile::RuntimeAction>,
 ) {
-    fill_missing_user_message_id(&mut request, handle.request_id());
     tokio::spawn(async move {
         let _finished = FinishGeneration(generation.finished.clone());
         if let Some(previous_finished) = previous_finished {
@@ -844,76 +848,5 @@ fn runtime_action_name(action: &pb::conversation_action::Action) -> &'static str
         Action::SubscriptionNotificationAction(_) => "SubscriptionNotificationAction",
         Action::GoalContinuationAction(_) => "GoalContinuationAction",
         Action::InjectContextAction(_) => "InjectContextAction",
-    }
-}
-
-/// Cursor subagent runs can start with an empty `UserMessage.message_id`, which
-/// compilation needs for stable input and event ids.  The transport request id
-/// is unique per run, so derive a deterministic id from it.
-fn fill_missing_user_message_id(request: &mut pb::AgentRunRequest, request_id: &str) {
-    let Some(pb::conversation_action::Action::UserMessageAction(action)) = request
-        .action
-        .as_mut()
-        .and_then(|action| action.action.as_mut())
-    else {
-        return;
-    };
-    let Some(user) = action.user_message.as_mut() else {
-        return;
-    };
-    if !user.message_id.is_empty() {
-        return;
-    }
-    user.message_id = format!("byok-subagent:{request_id}");
-    tracing::warn!(
-        request_id,
-        message_id = user.message_id,
-        "Cursor user message has no message_id; synthesized one"
-    );
-}
-
-#[cfg(test)]
-mod message_id_tests {
-    use super::*;
-
-    fn request(message_id: &str) -> pb::AgentRunRequest {
-        pb::AgentRunRequest {
-            action: Some(pb::ConversationAction {
-                action: Some(pb::conversation_action::Action::UserMessageAction(
-                    pb::UserMessageAction {
-                        user_message: Some(pb::UserMessage {
-                            message_id: message_id.into(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                )),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    }
-
-    fn message_id(request: &pb::AgentRunRequest) -> &str {
-        match request.action.as_ref().unwrap().action.as_ref().unwrap() {
-            pb::conversation_action::Action::UserMessageAction(action) => {
-                &action.user_message.as_ref().unwrap().message_id
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn synthesizes_message_id_from_request_id_when_empty() {
-        let mut request = request("");
-        fill_missing_user_message_id(&mut request, "req-1");
-        assert_eq!(message_id(&request), "byok-subagent:req-1");
-    }
-
-    #[test]
-    fn keeps_existing_message_id() {
-        let mut request = request("client-id");
-        fill_missing_user_message_id(&mut request, "req-1");
-        assert_eq!(message_id(&request), "client-id");
     }
 }

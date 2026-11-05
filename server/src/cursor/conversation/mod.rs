@@ -2,6 +2,7 @@
 
 mod command;
 mod delivery;
+mod input;
 mod output;
 mod pending;
 mod registry;
