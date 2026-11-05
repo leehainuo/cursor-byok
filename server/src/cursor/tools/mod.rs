@@ -13,6 +13,7 @@ pub(crate) mod registry;
 pub mod runtime;
 mod schedule;
 pub(crate) mod stream;
+pub mod subagent_models;
 mod tool_call_dispatch;
 pub(crate) mod tool_call_result;
 

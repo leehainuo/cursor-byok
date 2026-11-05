@@ -597,11 +597,10 @@ async fn newer_run_request_on_one_bidi_stream_replaces_the_active_run() {
 }
 
 #[tokio::test]
-async fn parent_request_does_not_need_to_resolve_to_an_active_run() {
+async fn parent_tool_call_does_not_need_to_resolve_to_an_active_run() {
     assert_run_starts_without_parent_dependency(
         "finished-parent-request",
         Some(TransportParent {
-            request_id: "already-finished-parent".into(),
             tool_call_id: "original-tool-call".into(),
         }),
         None,
