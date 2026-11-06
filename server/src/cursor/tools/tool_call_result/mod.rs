@@ -195,9 +195,20 @@ pub(super) fn prost_json(value: &prost_types::Value) -> Value {
     use prost_types::value::Kind;
     match value.kind.as_ref() {
         None | Some(Kind::NullValue(_)) => Value::Null,
-        Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
+        Some(Kind::NumberValue(value)) => {
+            // Protobuf only supports f64, but JSON schema validation requires
+            // integer constraints like minItems to be integers, not floats.
+            // If the f64 represents an exact integer, emit it as an integer.
+            if value.fract() == 0.0 && value.is_finite() {
+                let int_value = *value as i64;
+                if int_value as f64 == *value {
+                    return Value::Number(int_value.into());
+                }
+            }
+            serde_json::Number::from_f64(*value)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
         Some(Kind::StringValue(value)) => Value::String(value.clone()),
         Some(Kind::BoolValue(value)) => Value::Bool(*value),
         Some(Kind::StructValue(value)) => Value::Object(

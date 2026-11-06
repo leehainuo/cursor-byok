@@ -243,7 +243,18 @@ fn struct_value(value: &Struct) -> Value {
 fn proto_value(value: &ProtoValue) -> Value {
     match value.kind.as_ref() {
         Some(Kind::NullValue(_)) | None => Value::Null,
-        Some(Kind::NumberValue(value)) => Value::from(*value),
+        Some(Kind::NumberValue(value)) => {
+            // Protobuf only supports f64, but JSON schema validation requires
+            // integer constraints like minItems to be integers, not floats.
+            // If the f64 represents an exact integer, emit it as an integer.
+            if value.fract() == 0.0 && value.is_finite() {
+                let int_value = *value as i64;
+                if int_value as f64 == *value {
+                    return Value::from(int_value);
+                }
+            }
+            Value::from(*value)
+        }
         Some(Kind::StringValue(value)) => Value::from(value.clone()),
         Some(Kind::BoolValue(value)) => Value::from(*value),
         Some(Kind::StructValue(value)) => struct_value(value),
@@ -307,6 +318,49 @@ mod tests {
             request.prompt.tools[0].parameters,
             serde_json::json!({"type":"object"})
         );
+    }
+
+    #[test]
+    fn protobuf_float_integers_serialize_as_json_integers() {
+        // minItems: 2.0 should become minItems: 2, not minItems: 2.0
+        let schema = Struct {
+            fields: [
+                (
+                    "type".into(),
+                    ProtoValue {
+                        kind: Some(Kind::StringValue("array".into())),
+                    },
+                ),
+                (
+                    "minItems".into(),
+                    ProtoValue {
+                        kind: Some(Kind::NumberValue(2.0)),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        };
+
+        let input = pb::InferenceStreamRequest {
+            tools: vec![pb::InferenceAgentTool {
+                name: "TodoWrite".into(),
+                parameters: Some(schema),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let request = project(&input, "test-model").unwrap();
+        let params = &request.prompt.tools[0].parameters;
+
+        // Verify that minItems is an integer, not a float
+        assert_eq!(params.get("minItems"), Some(&serde_json::json!(2)));
+
+        // Serialize and verify the JSON doesn't contain "2.0"
+        let serialized = serde_json::to_string(params).unwrap();
+        assert!(serialized.contains("\"minItems\":2"));
+        assert!(!serialized.contains("2.0"));
     }
 
     fn text(role: i32, content: &str) -> pb::InferenceCoreMessage {
