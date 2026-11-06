@@ -1,5 +1,9 @@
 //! Parses and persists command execution output.
-use crate::{cursor::protocol::proto::agent::v1 as pb, model::ToolCall, Error, Result};
+use crate::{
+    cursor::protocol::{json::prost_struct, proto::agent::v1 as pb},
+    model::ToolCall,
+    Error, Result,
+};
 
 pub(super) fn output(
     message: &pb::exec_client_message::Message,
@@ -366,13 +370,7 @@ fn mcp_content(success: &pb::McpSuccess) -> Result<String> {
         }
     }
     if let Some(structured) = &success.structured_content {
-        let value = serde_json::Value::Object(
-            structured
-                .fields
-                .iter()
-                .map(|(key, value)| (key.clone(), super::super::prost_json(value)))
-                .collect(),
-        );
+        let value = prost_struct(structured);
         content.push(serde_json::to_string_pretty(&value)?);
     }
     Ok(if content.is_empty() {

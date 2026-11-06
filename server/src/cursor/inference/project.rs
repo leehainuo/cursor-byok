@@ -1,10 +1,12 @@
 //! Projects client-owned model calls into the provider-independent request.
 use base64::{engine::general_purpose::STANDARD, Engine};
-use prost_types::{value::Kind, Struct, Value as ProtoValue};
 use serde_json::{Map, Value};
 
 use crate::{
-    cursor::protocol::proto::inference as pb,
+    cursor::protocol::{
+        json::{prost_json, prost_struct},
+        proto::inference as pb,
+    },
     model::{
         ContentPart, ModelRequest, ModelSpec, ProjectedContent, ProjectedMessage, PromptSpec,
         ProviderReplayState, Role, ToolCallContent, ToolDefinition, ToolResultContent,
@@ -47,7 +49,7 @@ pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Res
             let parameters = tool
                 .parameters
                 .as_ref()
-                .map(struct_value)
+                .map(prost_struct)
                 .unwrap_or_else(|| serde_json::json!({}));
             ToolDefinition {
                 name: tool.name.clone(),
@@ -84,7 +86,7 @@ pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Res
         {
             for (part_index, part) in content.parts.iter().enumerate() {
                 let provider_parts = parts_from_wire(&part.experimental_content)?;
-                let content = part.result.as_ref().map(proto_value).unwrap_or(Value::Null);
+                let content = part.result.as_ref().map(prost_json).unwrap_or(Value::Null);
                 history.push(ProjectedMessage {
                     message_id: format!("cursor:{index}:tool:{part_index}"),
                     role: Role::Tool,
@@ -115,7 +117,7 @@ pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Res
                         None => call
                             .args
                             .as_ref()
-                            .map(struct_value)
+                            .map(prost_struct)
                             .unwrap_or_else(|| serde_json::json!({})),
                     };
                     Ok(ToolCallContent {
@@ -230,42 +232,10 @@ fn text_parts(parts: &[ContentPart]) -> String {
         .collect()
 }
 
-fn struct_value(value: &Struct) -> Value {
-    Value::Object(
-        value
-            .fields
-            .iter()
-            .map(|(key, value)| (key.clone(), proto_value(value)))
-            .collect(),
-    )
-}
-
-fn proto_value(value: &ProtoValue) -> Value {
-    match value.kind.as_ref() {
-        Some(Kind::NullValue(_)) | None => Value::Null,
-        Some(Kind::NumberValue(value)) => {
-            // Protobuf only supports f64, but JSON schema validation requires
-            // integer constraints like minItems to be integers, not floats.
-            // If the f64 represents an exact integer, emit it as an integer.
-            if value.fract() == 0.0 && value.is_finite() {
-                let int_value = *value as i64;
-                if int_value as f64 == *value {
-                    return Value::from(int_value);
-                }
-            }
-            Value::from(*value)
-        }
-        Some(Kind::StringValue(value)) => Value::from(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::from(*value),
-        Some(Kind::StructValue(value)) => struct_value(value),
-        Some(Kind::ListValue(value)) => {
-            Value::Array(value.values.iter().map(proto_value).collect())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use prost_types::{value::Kind, Struct, Value as ProtoValue};
+
     use super::*;
 
     #[test]
