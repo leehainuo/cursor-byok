@@ -119,15 +119,15 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
         .iter()
         .find(|config| config.mode_id == "agent")
         .unwrap();
+    let switch_targets = agent.switch_mode_tool_config.as_ref().map(|config| {
+        config
+            .target_modes
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+    });
     assert_eq!(
-        agent
-            .switch_mode_tool_config
-            .as_ref()
-            .map(|config| config
-                .target_modes
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()),
+        switch_targets,
         Some(vec!["agent", "chat", "plan", "debug", "multitask"])
     );
     assert!(metadata
