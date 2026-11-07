@@ -107,6 +107,7 @@ func ExtractProtosFromFiles(inputFiles []string, outputDir string) {
 
 		resolver := newTypeResolver(messages, enums, aliases, exportAliases)
 		resolver.moduleImports = buildModuleImportIndex(text, moduleStarts)
+		reclassifyEnumFields(messages, enums)
 		normalizeTypeReferences(messages, services, resolver)
 
 		allMessages = append(allMessages, messages...)
@@ -187,43 +188,86 @@ func normalizeTypeReferences(messages []Message, services []Service, resolver *T
 	}
 }
 
-// mergeMessagesByTypeName 按全限定名合并消息并保留首次声明。
+// mergeMessagesByTypeName 按全限定名合并消息，保留字段更完整的声明。
 func mergeMessagesByTypeName(messages []Message) []Message {
-	seen := make(map[string]bool)
+	index := make(map[string]int, len(messages))
 	merged := make([]Message, 0, len(messages))
 	for _, message := range messages {
-		if seen[message.TypeName] {
+		if existing, ok := index[message.TypeName]; ok {
+			if messageCompleteness(message) > messageCompleteness(merged[existing]) {
+				merged[existing] = message
+			}
 			continue
 		}
-		seen[message.TypeName] = true
+		index[message.TypeName] = len(merged)
 		merged = append(merged, message)
 	}
 	return merged
 }
 
-// mergeEnumsByTypeName 按全限定名合并枚举并保留首次声明。
+func messageCompleteness(message Message) int {
+	score := len(message.Fields) * 10
+	for _, field := range message.Fields {
+		if field.Kind == "map" {
+			score += 2
+		}
+		if field.Oneof != "" {
+			score++
+		}
+		score += typeRefCompleteness(field.T)
+		score += typeRefCompleteness(field.MapValueT)
+	}
+	return score
+}
+
+func typeRefCompleteness(token any) int {
+	name, ok := token.(string)
+	if !ok || name == "" {
+		return 0
+	}
+	if looksLikeFullTypeName(name) || googleWellKnownTypes[name] != "" {
+		return 3
+	}
+	return 1
+}
+
+// mergeEnumsByTypeName 按全限定名合并枚举，保留取值更完整的声明。
 func mergeEnumsByTypeName(enums []Enum) []Enum {
-	seen := make(map[string]bool)
+	index := make(map[string]int, len(enums))
 	merged := make([]Enum, 0, len(enums))
 	for _, enum := range enums {
-		if seen[enum.TypeName] {
+		if existing, ok := index[enum.TypeName]; ok {
+			if enumCompleteness(enum) > enumCompleteness(merged[existing]) {
+				merged[existing] = enum
+			}
 			continue
 		}
-		seen[enum.TypeName] = true
+		index[enum.TypeName] = len(merged)
 		merged = append(merged, enum)
 	}
 	return merged
 }
 
-// mergeServicesByTypeName 按全限定名合并服务并保留首次声明。
+func enumCompleteness(enum Enum) int {
+	score := len(enum.Values) * 10
+	for _, value := range enum.Values {
+		score += len(value.Name)
+	}
+	return score
+}
+
+// mergeServicesByTypeName 按全限定名合并服务，保留方法更完整的声明。
 func mergeServicesByTypeName(services []Service) []Service {
-	seen := make(map[string]bool)
+	index := make(map[string]int, len(services))
 	merged := make([]Service, 0, len(services))
 	for _, service := range services {
-		if seen[service.TypeName] {
+		if existing, ok := index[service.TypeName]; ok {
+			if len(service.Methods) > len(merged[existing].Methods) {
+				merged[existing] = service
+			}
 			continue
 		}
-		seen[service.TypeName] = true
+		index[service.TypeName] = len(merged)
 		merged = append(merged, service)
 	}
 	return merged
@@ -426,5 +470,62 @@ func validateRequiredAgentShapes(file string, body string) error {
 	if strings.Contains(body, "message ShellStream") && !shellStdoutRe.MatchString(body) {
 		return fmt.Errorf("%s: ShellStream.stdout must be ShellStreamStdout", file)
 	}
+	if strings.Contains(body, "message RunInferencePromptModelMetadata") {
+		if !agentModeConfigsRe.MatchString(body) {
+			return fmt.Errorf("%s: RunInferencePromptModelMetadata.agent_mode_configs must be repeated RunInferenceAgentModeConfig = 46", file)
+		}
+		if !askQuestionConfigRe.MatchString(body) {
+			return fmt.Errorf("%s: RunInferencePromptModelMetadata.ask_question_config must be optional RunInferenceAskQuestionConfig = 48", file)
+		}
+	}
+	if strings.Contains(body, "message RunInferenceAgentModeConfig") && !agentModeConfigShapeRe.MatchString(body) {
+		return fmt.Errorf("%s: RunInferenceAgentModeConfig must include mode_id, enable_ask_question_tool, and switch_mode_tool_config", file)
+	}
+	if strings.Contains(body, "service InferenceService") {
+		if !runInferenceRPCRe.MatchString(body) {
+			return fmt.Errorf("%s: InferenceService must expose bidi RunInference", file)
+		}
+		if !runInferenceSSERPCRe.MatchString(body) {
+			return fmt.Errorf("%s: InferenceService must expose RunInferenceSSE", file)
+		}
+	}
 	return nil
+}
+
+func reclassifyEnumFields(messages []Message, enums []Enum) {
+	enumNames := make(map[string]bool, len(enums)*2)
+	for _, enum := range enums {
+		enumNames[enum.TypeName] = true
+		enumNames[enum.ShortName] = true
+		if idx := strings.LastIndex(enum.ShortName, "."); idx >= 0 {
+			enumNames[enum.ShortName[idx+1:]] = true
+		}
+	}
+	reclassify := func(kind *string, token any) {
+		if *kind != "message" {
+			return
+		}
+		name, ok := token.(string)
+		if !ok || name == "" {
+			return
+		}
+		if enumNames[name] {
+			*kind = "enum"
+			return
+		}
+		_, shortName := parseTypeName(name)
+		if enumNames[shortName] {
+			*kind = "enum"
+		}
+	}
+	for messageIndex := range messages {
+		for fieldIndex := range messages[messageIndex].Fields {
+			field := &messages[messageIndex].Fields[fieldIndex]
+			if field.Kind == "map" {
+				reclassify(&field.MapValueKind, field.MapValueT)
+				continue
+			}
+			reclassify(&field.Kind, field.T)
+		}
+	}
 }

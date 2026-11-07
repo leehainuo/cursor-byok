@@ -238,7 +238,14 @@ async fn serve(
                 }
                 break;
             }
-            None => {}
+            Some(
+                Message::ClientHeartbeat(_)
+                | Message::AgentEvent(_)
+                | Message::RunRequestLog(_)
+                | Message::ResolveSubagentModels(_)
+                | Message::ClientFirstCallTimings(_),
+            )
+            | None => {}
         }
     }
     if !finished {
@@ -274,6 +281,11 @@ fn run_ready(
             is_gpt5: gpt5,
             persona: "auto".into(),
             self_identity_name: "Cursor".into(),
+            agent_mode_configs: agent_mode_configs(),
+            ask_question_config: Some(pb::RunInferenceAskQuestionConfig {
+                tool_name: "AskQuestion".into(),
+                ..Default::default()
+            }),
             ..Default::default()
         }),
         accepts_aborted_finish: true,
@@ -316,7 +328,11 @@ async fn serve_invocation(
     invocations.lock().remove(&id);
     let message = pb::RunInferenceInvocationEnd {
         invocation_id: id,
-        error: error.map(|message| pb::RunInferenceInvocationError { code: 13, message }),
+        error: error.map(|message| pb::RunInferenceInvocationError {
+            code: 13,
+            message,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     emit(
@@ -379,6 +395,7 @@ fn model_response(
                 args: String::new(),
                 is_complete: false,
                 tool_index: i32::try_from(index).ok(),
+                ..Default::default()
             })
         }
         ModelEvent::ToolCallArgumentsDelta { index, delta } => {
@@ -390,6 +407,7 @@ fn model_response(
                 args: delta,
                 is_complete: false,
                 tool_index: i32::try_from(index).ok(),
+                ..Default::default()
             })
         }
         ModelEvent::ToolCallEnd { index } => {
@@ -400,6 +418,7 @@ fn model_response(
                 args: arguments,
                 is_complete: true,
                 tool_index: i32::try_from(index).ok(),
+                ..Default::default()
             })
         }
         ModelEvent::Usage(usage) => Response::ExtendedUsage(pb::InferenceExtendedUsageInfo {
@@ -421,7 +440,25 @@ fn model_response(
     };
     Some(pb::InferenceStreamResponse {
         response: Some(response),
+        ..Default::default()
     })
+}
+
+fn agent_mode_configs() -> Vec<pb::RunInferenceAgentModeConfig> {
+    const MODES: [&str; 6] = ["agent", "chat", "plan", "debug", "triage", "multitask"];
+    const SWITCH: [&str; 5] = ["agent", "chat", "plan", "debug", "multitask"];
+    MODES
+        .into_iter()
+        .map(|mode| pb::RunInferenceAgentModeConfig {
+            mode_id: mode.into(),
+            enable_ask_question_tool: true,
+            switch_mode_tool_config: (mode == "agent").then(|| {
+                pb::RunInferenceSwitchModeToolConfig {
+                    target_modes: SWITCH.into_iter().map(str::to_owned).collect(),
+                }
+            }),
+        })
+        .collect()
 }
 
 fn count(value: Option<u64>) -> i32 {
@@ -436,6 +473,7 @@ fn invocation_error(output: &OutputHub, id: String, message: &str) {
             error: Some(pb::RunInferenceInvocationError {
                 code: 3,
                 message: message.into(),
+                ..Default::default()
             }),
             ..Default::default()
         }),

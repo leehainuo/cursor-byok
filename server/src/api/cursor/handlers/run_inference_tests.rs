@@ -99,7 +99,48 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
         panic!("expected run_ready");
     };
     assert_eq!(ready.resolved_model.unwrap().model_id, model.model_hash);
-    assert!(!ready.prompt_model_metadata.unwrap().is_gpt5);
+    let metadata = ready.prompt_model_metadata.unwrap();
+    assert!(!metadata.is_gpt5);
+    let modes: Vec<&str> = metadata
+        .agent_mode_configs
+        .iter()
+        .map(|config| config.mode_id.as_str())
+        .collect();
+    assert_eq!(
+        modes,
+        ["agent", "chat", "plan", "debug", "triage", "multitask"]
+    );
+    assert!(metadata
+        .agent_mode_configs
+        .iter()
+        .all(|config| config.enable_ask_question_tool));
+    let agent = metadata
+        .agent_mode_configs
+        .iter()
+        .find(|config| config.mode_id == "agent")
+        .unwrap();
+    assert_eq!(
+        agent
+            .switch_mode_tool_config
+            .as_ref()
+            .map(|config| config
+                .target_modes
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()),
+        Some(vec!["agent", "chat", "plan", "debug", "multitask"])
+    );
+    assert!(metadata
+        .agent_mode_configs
+        .iter()
+        .find(|config| config.mode_id == "plan")
+        .unwrap()
+        .switch_mode_tool_config
+        .is_none());
+    assert_eq!(
+        metadata.ask_question_config.unwrap().tool_name,
+        "AskQuestion"
+    );
 
     append(
         &router,
@@ -188,7 +229,10 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
         2,
         pb::RunInferenceClientMessage {
             message: Some(pb::run_inference_client_message::Message::FinishRun(
-                pb::RunInferenceFinishRun { aborted: false },
+                pb::RunInferenceFinishRun {
+                    aborted: false,
+                    ..Default::default()
+                },
             )),
         },
     )
