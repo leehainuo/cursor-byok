@@ -2,5 +2,6 @@
 
 pub mod connect;
 pub mod events;
+pub mod json;
 pub mod json_stream;
 pub mod proto;

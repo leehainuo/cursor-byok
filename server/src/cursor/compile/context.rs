@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use crate::{
     cursor::{
-        protocol::proto::agent::v1 as pb, services::context_sync::RequestContextSynchronizer,
+        protocol::{json::prost_json, proto::agent::v1 as pb},
+        services::context_sync::RequestContextSynchronizer,
         tools::runtime::McpRoute,
     },
     model::{normalize_tool_name, ToolDefinition},
@@ -364,7 +365,7 @@ fn mcp_input_schema(tool: &pb::McpToolDescriptor) -> Option<String> {
         .or_else(|| {
             tool.input_schema
                 .as_ref()
-                .map(prost_value)
+                .map(prost_json)
                 .map(|value| value.to_string())
         })
 }
@@ -488,7 +489,7 @@ pub fn dynamic_mcp(
         }
         let parameters = match wire.input_schema_json.as_deref() {
             Some(json) if !json.trim().is_empty() => serde_json::from_str(json)?,
-            _ => prost_value(wire.input_schema.as_ref().ok_or_else(|| {
+            _ => prost_json(wire.input_schema.as_ref().ok_or_else(|| {
                 Error::Protocol(format!("MCP tool {} is missing input schema", wire.name))
             })?),
         };
@@ -551,28 +552,6 @@ fn invalid_mcp_parameters(tool_name: &str) -> Error {
     Error::Protocol(format!(
         "MCP tool {tool_name} input schema must describe an object"
     ))
-}
-
-fn prost_value(value: &prost_types::Value) -> Value {
-    use prost_types::value::Kind;
-    match value.kind.as_ref() {
-        None | Some(Kind::NullValue(_)) => Value::Null,
-        Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        Some(Kind::StringValue(value)) => Value::String(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::Bool(*value),
-        Some(Kind::StructValue(value)) => Value::Object(
-            value
-                .fields
-                .iter()
-                .map(|(key, value)| (key.clone(), prost_value(value)))
-                .collect(),
-        ),
-        Some(Kind::ListValue(value)) => {
-            Value::Array(value.values.iter().map(prost_value).collect())
-        }
-    }
 }
 
 fn xml(value: &str) -> String {
