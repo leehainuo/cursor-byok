@@ -223,12 +223,21 @@ export interface PluginResourceView {
   createdAtMs: number;
 }
 
+export interface PluginFormField {
+  id: string;
+  label: PluginLocalizedText;
+  type: "url" | "secret" | "text";
+  required: boolean;
+  placeholder: PluginLocalizedText | null;
+}
+
 export interface PluginAddMethod {
-  type: "oauth2.0" | "oauth2.authorization-code";
+  type: "oauth2.0" | "oauth2.authorization-code" | "form";
   id: string;
   displayName: PluginLocalizedText;
   description: PluginLocalizedText | null;
   callback?: { port: number | null; path: string | null };
+  fields?: PluginFormField[];
 }
 
 export interface PluginImportDescriptor {
@@ -301,6 +310,7 @@ export interface PluginProviderDescriptor {
   providerType: string;
   resourceType: string | null;
   hasModels: boolean;
+  catalog: "snapshot" | "live";
   configured: boolean;
   models: PluginModelDescriptor[];
 }
@@ -339,6 +349,12 @@ export interface PluginImportResult {
   added: number;
   updated: number;
   warnings: string[];
+  modelSyncError: string | null;
+}
+
+export interface PluginFormSubmitResult {
+  added: number;
+  updated: number;
   modelSyncError: string | null;
 }
 
@@ -512,6 +528,7 @@ export const api = {
   plugins: () => request<PluginDescriptor[]>("/plugins"),
   pluginOAuthBegin: (pluginId: string, resourceType: string, methodId: string) => request<PluginOAuthBegin>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/add/${encodeURIComponent(methodId)}/begin`, { method: "POST" }),
   pluginOAuthPoll: (sessionId: string, signal?: AbortSignal) => request<PluginOAuthPoll>(`/plugins/oauth/${encodeURIComponent(sessionId)}/poll`, { method: "POST", signal }),
+  pluginFormSubmit: (pluginId: string, resourceType: string, methodId: string, values: Record<string, string>) => request<PluginFormSubmitResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/form/${encodeURIComponent(methodId)}`, { method: "POST", body: JSON.stringify({ values }) }),
   importPluginResources: (pluginId: string, resourceType: string, files: PluginImportFile[]) => request<PluginImportResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/import`, { method: "POST", body: JSON.stringify(files) }),
   refreshPluginResource: (pluginId: string, resourceType: string, resourceId: string) => request<void>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/refresh`, { method: "POST" }),
   pluginResourceAction: (pluginId: string, resourceType: string, resourceId: string, actionId: string, input: unknown = {}) => request<PluginResourceActionResult>(`/plugins/${encodeURIComponent(pluginId)}/resources/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}/actions/${encodeURIComponent(actionId)}`, { method: "POST", body: JSON.stringify(input) }),

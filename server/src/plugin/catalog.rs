@@ -218,6 +218,29 @@ fn validate_definition(plugin_id: &str, definition: &PluginModuleDefinition) -> 
                 provider.id
             )));
         }
+        if !matches!(
+            provider.catalog.as_str(),
+            super::descriptor::SNAPSHOT_CATALOG | super::descriptor::LIVE_CATALOG
+        ) {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' provider '{}' uses unsupported catalog '{}'",
+                provider.id, provider.catalog
+            )));
+        }
+        if provider.catalog == super::descriptor::LIVE_CATALOG {
+            if !provider.has_models {
+                return Err(Error::Config(format!(
+                    "plugin '{plugin_id}' provider '{}' live catalog requires models",
+                    provider.id
+                )));
+            }
+            if provider.resource_type.is_none() {
+                return Err(Error::Config(format!(
+                    "plugin '{plugin_id}' provider '{}' live catalog requires a resource type",
+                    provider.id
+                )));
+            }
+        }
         if !provider_ids.insert(provider.id.clone()) {
             return Err(Error::Config(format!(
                 "plugin '{plugin_id}' contains duplicate provider '{}'",
@@ -255,14 +278,29 @@ fn validate_definition(plugin_id: &str, definition: &PluginModuleDefinition) -> 
         }
         for method in &resource.add {
             validate_id(&method.id, "plugin add method id")?;
-            if !matches!(
-                method.method_type.as_str(),
+            match method.method_type.as_str() {
                 super::descriptor::OAUTH2_ADD_METHOD
-                    | super::descriptor::OAUTH2_AUTHORIZATION_CODE_ADD_METHOD
-            ) {
+                | super::descriptor::OAUTH2_AUTHORIZATION_CODE_ADD_METHOD
+                | super::descriptor::FORM_ADD_METHOD => {}
+                other => {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' add method '{}' uses unsupported type '{other}'",
+                        method.id
+                    )));
+                }
+            }
+            if method.method_type == super::descriptor::FORM_ADD_METHOD {
+                if method.callback.is_some() {
+                    return Err(Error::Config(format!(
+                        "plugin '{plugin_id}' form method '{}' cannot declare callback settings",
+                        method.id
+                    )));
+                }
+                validate_form_fields(plugin_id, &method.id, &method.fields)?;
+            } else if !method.fields.is_empty() {
                 return Err(Error::Config(format!(
-                    "plugin '{plugin_id}' add method '{}' uses unsupported type '{}'",
-                    method.id, method.method_type
+                    "plugin '{plugin_id}' OAuth method '{}' cannot declare form fields",
+                    method.id
                 )));
             }
             if method.method_type == super::descriptor::OAUTH2_ADD_METHOD
@@ -292,6 +330,56 @@ fn validate_definition(plugin_id: &str, definition: &PluginModuleDefinition) -> 
                     }
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn validate_form_fields(
+    plugin_id: &str,
+    method_id: &str,
+    fields: &[super::descriptor::FormFieldDefinition],
+) -> Result<()> {
+    if fields.is_empty() {
+        return Err(Error::Config(format!(
+            "plugin '{plugin_id}' form method '{method_id}' must declare at least one field"
+        )));
+    }
+    let mut field_ids = std::collections::HashSet::new();
+    for field in fields {
+        validate_id(&field.id, "plugin form field id")?;
+        if !field_ids.insert(field.id.clone()) {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' form method '{method_id}' contains duplicate field '{}'",
+                field.id
+            )));
+        }
+        if !matches!(
+            field.field_type.as_str(),
+            super::descriptor::FORM_FIELD_URL
+                | super::descriptor::FORM_FIELD_SECRET
+                | super::descriptor::FORM_FIELD_TEXT
+        ) {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' form field '{}' uses unsupported type '{}'",
+                field.id, field.field_type
+            )));
+        }
+        validate_localized_text(
+            &field.label,
+            &format!(
+                "plugin '{plugin_id}' form method '{method_id}' field '{}' label",
+                field.id
+            ),
+        )?;
+        if !field.placeholder.is_null() {
+            validate_localized_text(
+                &field.placeholder,
+                &format!(
+                    "plugin '{plugin_id}' form method '{method_id}' field '{}' placeholder",
+                    field.id
+                ),
+            )?;
         }
     }
     Ok(())
@@ -333,7 +421,15 @@ fn icon_data_url(directory: &Path, relative: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{validate_definition, PluginCatalog, PluginModuleDefinition};
+    use crate::plugin::{
+        definition::PluginDefinitionLoader,
+        descriptor::{
+            AddMethodDefinition, FormFieldDefinition, ProviderDefinition, ResourceDefinition,
+        },
+    };
+    use std::path::PathBuf;
+
     #[test]
     fn repository_examples_have_valid_static_manifests() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins/build-in");
@@ -344,5 +440,82 @@ mod tests {
             app_version: env!("CARGO_PKG_VERSION").into(),
         };
         assert!(!catalog.manifests().is_empty());
+    }
+
+    fn provider(
+        catalog: &str,
+        has_models: bool,
+        resource_type: Option<&str>,
+    ) -> ProviderDefinition {
+        ProviderDefinition {
+            id: "gateway".into(),
+            display_name: serde_json::json!("Gateway"),
+            description: serde_json::Value::Null,
+            provider_type: "openai".into(),
+            resource_type: resource_type.map(str::to_owned),
+            has_models,
+            catalog: catalog.into(),
+        }
+    }
+
+    fn resource(method: AddMethodDefinition) -> ResourceDefinition {
+        ResourceDefinition {
+            resource_type: "gateway".into(),
+            display_name: serde_json::json!("Gateways"),
+            add: vec![method],
+            import: None,
+            actions: Vec::new(),
+            can_refresh: false,
+            can_remove: false,
+        }
+    }
+
+    #[test]
+    fn accepts_form_add_methods_and_live_catalogs() {
+        let definition = PluginModuleDefinition {
+            providers: vec![provider("live", true, Some("gateway"))],
+            resources: vec![resource(AddMethodDefinition {
+                method_type: "form".into(),
+                id: "connect".into(),
+                display_name: serde_json::json!("Connect"),
+                description: serde_json::Value::Null,
+                callback: None,
+                fields: vec![FormFieldDefinition {
+                    id: "base-url".into(),
+                    label: serde_json::json!("URL"),
+                    field_type: "url".into(),
+                    required: true,
+                    placeholder: serde_json::json!("http://127.0.0.1:3425"),
+                }],
+            })],
+        };
+        validate_definition("dev.example", &definition).unwrap();
+    }
+
+    #[test]
+    fn rejects_unsupported_form_fields_and_live_without_resources() {
+        let mut definition = PluginModuleDefinition {
+            providers: vec![provider("live", true, None)],
+            resources: vec![resource(AddMethodDefinition {
+                method_type: "form".into(),
+                id: "connect".into(),
+                display_name: serde_json::json!("Connect"),
+                description: serde_json::Value::Null,
+                callback: None,
+                fields: vec![FormFieldDefinition {
+                    id: "base-url".into(),
+                    label: serde_json::json!("URL"),
+                    field_type: "password".into(),
+                    required: true,
+                    placeholder: serde_json::Value::Null,
+                }],
+            })],
+        };
+        assert!(validate_definition("dev.example", &definition).is_err());
+        definition.providers[0].resource_type = Some("gateway".into());
+        definition.resources[0].add[0].fields[0].field_type = "url".into();
+        validate_definition("dev.example", &definition).unwrap();
+        definition.providers[0].catalog = "frozen".into();
+        assert!(validate_definition("dev.example", &definition).is_err());
     }
 }

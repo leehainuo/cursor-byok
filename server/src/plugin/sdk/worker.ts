@@ -165,6 +165,16 @@ async function dispatch(message: { id: string; method: string; params?: JsonValu
         );
         break;
       }
+      case "form.submit": {
+        const support = resourceSupport(params.resourceType);
+        const method = addMethod(support, params.methodId);
+        if (method.type !== "form") throw new Error(`add method ${method.id} does not support form submit`);
+        const values = params.values && typeof params.values === "object" && !Array.isArray(params.values)
+          ? Object.fromEntries(Object.entries(params.values as Record<string, JsonValue>).map(([key, value]) => [key, String(value ?? "")]))
+          : {};
+        result = await method.submit(values, context);
+        break;
+      }
       case "import.parse": {
         const support = resourceSupport(params.resourceType);
         if (!support.import) throw new Error(`resource ${params.resourceType} has no import`);

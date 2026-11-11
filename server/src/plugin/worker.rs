@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     catalog::PluginEntry,
     definition::{file_url, PluginDefinitionLoader},
+    origin,
     protocol::{HostMessage, WorkerMessage},
 };
 use crate::{provider::CallRecorder, store::Store, Error, Result};
@@ -63,6 +64,7 @@ struct InvocationState {
     cancellation: CancellationToken,
     recorder: Option<CallRecorder>,
     recorder_claimed: AtomicBool,
+    allowed_origins: HashSet<String>,
 }
 
 impl InvocationState {
@@ -80,6 +82,7 @@ impl InvocationState {
 struct HostContext {
     plugin_id: String,
     network_hosts: Arc<HashSet<String>>,
+    resource_origin: bool,
     store: Store,
     invocations: Arc<Mutex<HashMap<String, Arc<InvocationState>>>>,
     streams: Arc<Mutex<HashMap<String, StreamLines>>>,
@@ -106,6 +109,7 @@ impl PluginWorker {
                             .map(|host| host.to_ascii_lowercase())
                             .collect(),
                     ),
+                    resource_origin: plugin.manifest.permissions.resource_origin,
                     store,
                     invocations: Arc::new(Mutex::new(HashMap::new())),
                     streams: Arc::new(Mutex::new(HashMap::new())),
@@ -128,8 +132,19 @@ impl PluginWorker {
         params: serde_json::Value,
         cancellation: CancellationToken,
     ) -> Result<serde_json::Value> {
+        self.invoke_with_origins(method, params, cancellation, HashSet::new())
+            .await
+    }
+
+    pub async fn invoke_with_origins(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        cancellation: CancellationToken,
+        allowed_origins: HashSet<String>,
+    ) -> Result<serde_json::Value> {
         let mut items = self
-            .invoke_streaming(method, params, cancellation, None)
+            .invoke_streaming_with_origins(method, params, cancellation, None, allowed_origins)
             .await?;
         let result = tokio::time::timeout(INVOCATION_TIMEOUT, async {
             while let Some(item) = items.recv().await {
@@ -154,12 +169,13 @@ impl PluginWorker {
 
     /// 流式调用:事件按序转发,最终以恰好一个 Result 收尾。
     /// 取消通过传入的令牌传播到 Worker 与其挂起的宿主网络请求。
-    pub async fn invoke_streaming(
+    pub async fn invoke_streaming_with_origins(
         &self,
         method: &str,
         params: serde_json::Value,
         cancellation: CancellationToken,
         recorder: Option<CallRecorder>,
+        allowed_origins: HashSet<String>,
     ) -> Result<mpsc::UnboundedReceiver<WorkerStreamItem>> {
         let id = uuid::Uuid::new_v4().to_string();
         let request_cancellation = CancellationToken::new();
@@ -169,6 +185,7 @@ impl PluginWorker {
                 cancellation: request_cancellation.clone(),
                 recorder,
                 recorder_claimed: AtomicBool::new(false),
+                allowed_origins,
             }),
         );
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -476,16 +493,27 @@ impl HostContext {
         let raw_url = required_string(params, "url")?;
         let url = url::Url::parse(raw_url)
             .map_err(|error| Error::Config(format!("invalid plugin network URL: {error}")))?;
-        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        if !url.username().is_empty() || url.password().is_some() {
             return Err(Error::Config(
-                "plugin network URL must be HTTPS without credentials".into(),
+                "plugin network URL must not contain credentials".into(),
             ));
         }
         let host = url
             .host_str()
             .ok_or_else(|| Error::Config("plugin network URL has no host".into()))?
             .to_ascii_lowercase();
-        if !self.network_hosts.contains(&host) {
+        let origin = origin::request_origin(&url)?;
+        let invocation = self.invocations.lock().await.get(request_id).cloned();
+        let allowed_origin = invocation
+            .as_ref()
+            .is_some_and(|state| state.allowed_origins.contains(&origin));
+        let allowed_static_host = url.scheme() == "https" && self.network_hosts.contains(&host);
+        if !allowed_static_host && !(self.resource_origin && allowed_origin) {
+            if url.scheme() != "https" && !self.resource_origin {
+                return Err(Error::Config(
+                    "plugin network URL must be HTTPS without credentials".into(),
+                ));
+            }
             return Err(Error::Config(format!(
                 "plugin '{}' cannot access host '{host}'",
                 self.plugin_id
@@ -514,7 +542,6 @@ impl HostContext {
         if let Some(body) = params.get("body").and_then(serde_json::Value::as_str) {
             request = request.body(body.to_owned());
         }
-        let invocation = self.invocations.lock().await.get(request_id).cloned();
         let cancellation = invocation
             .as_ref()
             .map(|state| state.cancellation.clone())
@@ -783,11 +810,13 @@ mod tests {
                 cancellation: CancellationToken::new(),
                 recorder: Some(recorder),
                 recorder_claimed: AtomicBool::new(false),
+                allowed_origins: HashSet::new(),
             }),
         );
         HostContext {
             plugin_id: "test".into(),
             network_hosts: Arc::new(HashSet::from(["example.com".into()])),
+            resource_origin: false,
             store,
             invocations,
             streams: Arc::new(Mutex::new(HashMap::new())),
@@ -888,5 +917,83 @@ mod tests {
         assert_eq!(summary.response_bytes, response.len() as i64);
         assert_eq!(summary.stream_event_count, 1);
         assert!(!summary.detailed);
+    }
+
+    async fn host_for_network(
+        resource_origin: bool,
+        allowed_origins: HashSet<String>,
+    ) -> (tempfile::TempDir, HostContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::connect(&format!(
+            "sqlite://{}",
+            directory.path().join("test.db").display()
+        ))
+        .await
+        .unwrap();
+        let invocations = Arc::new(Mutex::new(HashMap::new()));
+        invocations.lock().await.insert(
+            "invocation".into(),
+            Arc::new(InvocationState {
+                cancellation: CancellationToken::new(),
+                recorder: None,
+                recorder_claimed: AtomicBool::new(false),
+                allowed_origins,
+            }),
+        );
+        (
+            directory,
+            HostContext {
+                plugin_id: "test".into(),
+                network_hosts: Arc::new(HashSet::from(["example.com".into()])),
+                resource_origin,
+                store,
+                invocations,
+                streams: Arc::new(Mutex::new(HashMap::new())),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn resource_origin_allows_bound_http_and_rejects_others() {
+        let (_directory, host) =
+            host_for_network(true, HashSet::from(["http://192.168.1.2:3425".into()])).await;
+        let _ = host
+            .request(
+                "invocation",
+                &serde_json::json!({ "url": "http://192.168.1.2:3425/v1/models" }),
+            )
+            .await
+            .unwrap();
+
+        let error = match host
+            .request(
+                "invocation",
+                &serde_json::json!({ "url": "http://10.0.0.2:3425/v1/models" }),
+            )
+            .await
+        {
+            Ok(_) => panic!("expected host to reject unbound origin"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("cannot access host"));
+    }
+
+    #[tokio::test]
+    async fn static_allowlist_still_requires_https() {
+        let (_directory, host) = host_for_network(false, HashSet::new()).await;
+        let _ = host.request("invocation", &network_params()).await.unwrap();
+        let error = match host
+            .request(
+                "invocation",
+                &serde_json::json!({ "url": "http://example.com/v1/models" }),
+            )
+            .await
+        {
+            Ok(_) => panic!("expected host to reject HTTP static hosts"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("plugin network URL must be HTTPS without credentials"));
     }
 }

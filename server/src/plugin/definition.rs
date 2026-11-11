@@ -207,11 +207,23 @@ mod tests {
         let output = br#"CURSOR_BYOK_PLUGIN_DEFINITION:{"providers":[{"id":"codex","displayName":"OpenAI Codex","description":null,"providerType":"openai","resourceType":"chatgpt-account","hasModels":true}],"resources":[{"type":"chatgpt-account","displayName":"ChatGPT accounts","add":[{"type":"oauth2.0","id":"chatgpt-device","displayName":"Sign in","description":null}],"import":{"displayName":"Import","description":null,"accept":[".json"],"multiple":true},"canRefresh":true,"canRemove":false}]}"#;
         let descriptor = parse_definition_output(output).unwrap();
         assert_eq!(descriptor.providers[0].id, "codex");
+        assert_eq!(descriptor.providers[0].catalog, "snapshot");
         assert_eq!(
             descriptor.providers[0].resource_type.as_deref(),
             Some("chatgpt-account")
         );
         assert_eq!(descriptor.resources[0].add[0].method_type, "oauth2.0");
+        assert!(descriptor.resources[0].add[0].fields.is_empty());
         assert!(descriptor.resources[0].import.is_some());
+    }
+
+    #[test]
+    fn parses_form_and_live_descriptor_fields() {
+        let output = br#"CURSOR_BYOK_PLUGIN_DEFINITION:{"providers":[{"id":"gateway","displayName":"Gateway","description":null,"providerType":"openai","resourceType":"gateway","hasModels":true,"catalog":"live"}],"resources":[{"type":"gateway","displayName":"Gateways","add":[{"type":"form","id":"connect","displayName":"Connect","description":null,"fields":[{"id":"base-url","label":"URL","type":"url","required":true,"placeholder":null}]}],"import":null,"actions":[],"canRefresh":false,"canRemove":false}]}"#;
+        let descriptor = parse_definition_output(output).unwrap();
+        assert_eq!(descriptor.providers[0].catalog, "live");
+        assert_eq!(descriptor.resources[0].add[0].method_type, "form");
+        assert_eq!(descriptor.resources[0].add[0].fields[0].id, "base-url");
+        assert_eq!(descriptor.resources[0].add[0].fields[0].field_type, "url");
     }
 }
