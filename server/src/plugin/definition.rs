@@ -63,6 +63,10 @@ impl PluginDefinitionLoader {
                 &sdk_dir.join("protocol/openai_chat.ts"),
                 include_str!("sdk/protocol/openai_chat.ts"),
             ),
+            (
+                &sdk_dir.join("protocol/anthropic.ts"),
+                include_str!("sdk/protocol/anthropic.ts"),
+            ),
         ];
         for (path, content) in &modules {
             write_if_changed(path, content)?;
