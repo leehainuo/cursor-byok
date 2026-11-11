@@ -67,18 +67,19 @@ fn set_dock_icon_visible(app: AppHandle, visible: bool) -> tauri::Result<()> {
 
 #[cfg(target_os = "macos")]
 fn apply_dock_icon_visibility(app: &AppHandle, visible: bool) -> tauri::Result<()> {
-    if visible {
+    if visible || main_window_visible(app) {
         return app.set_activation_policy(tauri::ActivationPolicy::Regular);
     }
 
-    let window_visible = app
-        .get_webview_window(MAIN_WINDOW_LABEL)
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false);
-    if !window_visible {
-        app.hide()?;
-    }
+    app.hide()?;
     app.set_activation_policy(tauri::ActivationPolicy::Accessory)
+}
+
+#[cfg(target_os = "macos")]
+fn main_window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN_WINDOW_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -187,7 +188,12 @@ fn create_main_window(
 /// 按需打开主窗口:webview 仅在需要界面时创建,关闭窗口即销毁释放内存。
 pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
-    app.show()?;
+    {
+        // Launchpad/Dock 的激活必须落在 Regular 上。窗口显示后再改回 Accessory
+        // 会把刚拿到的前台身份交出去,窗口会闪到其它界面后面。
+        app.set_activation_policy(tauri::ActivationPolicy::Regular)?;
+        app.show()?;
+    }
 
     let window = if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
@@ -200,7 +206,15 @@ pub(crate) fn open_main_window(app: &AppHandle) -> tauri::Result<()> {
     window.set_focus()?;
 
     #[cfg(target_os = "macos")]
-    apply_dock_icon_visibility(app, app.state::<DesktopRuntime>().show_dock_icon())?;
+    {
+        // Launchpad 关闭动画会在窗口显示后把前台交还给其它应用。
+        // 等它结束后再抢一次焦点,托盘打开也会多一次无害的 set_focus。
+        let window = window.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let _ = window.set_focus();
+        });
+    }
 
     Ok(())
 }
