@@ -109,6 +109,51 @@ const GROK_AUTH: &[(&str, &str)] = &[
     ),
 ];
 
+const MAGPIE: &[(&str, &str)] = &[
+    (
+        "plugin.json",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/plugin.json"
+        )),
+    ),
+    (
+        "main.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/main.ts"
+        )),
+    ),
+    (
+        "provider.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/provider.ts"
+        )),
+    ),
+    (
+        "catalog.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/catalog.ts"
+        )),
+    ),
+    (
+        "resources.ts",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/resources.ts"
+        )),
+    ),
+    (
+        "assets/magpie.svg",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/plugins/build-in/magpie/assets/magpie.svg"
+        )),
+    ),
+];
+
 const ANTIGRAVITY_AUTH: &[(&str, &str)] = &[
     (
         "plugin.json",
@@ -172,6 +217,7 @@ const PLUGINS: &[(&str, &[(&str, &str)])] = &[
     ("codex-auth", CODEX_AUTH),
     ("grok-auth", GROK_AUTH),
     ("antigravity-auth", ANTIGRAVITY_AUTH),
+    ("magpie", MAGPIE),
 ];
 
 /// 把内置插件预装到 installed 目录。manifest 的 version 是缓存键:
@@ -276,6 +322,8 @@ mod tests {
             .path()
             .join("antigravity-auth/assets/antigravity.svg")
             .is_file());
+        assert!(root.path().join("magpie/plugin.json").is_file());
+        assert!(root.path().join("magpie/assets/magpie.svg").is_file());
 
         // 版本一致:本地改动与额外文件保持原样,不发生任何写盘。
         std::fs::write(plugin.join("main.ts"), "edited").unwrap();

@@ -437,9 +437,34 @@ mod tests {
         let catalog = PluginCatalog {
             roots: vec![root],
             definition_loader: PluginDefinitionLoader::for_test(sdk.path()).unwrap(),
-            app_version: env!("CARGO_PKG_VERSION").into(),
+            app_version: "1.0.1".into(),
         };
-        assert!(!catalog.manifests().is_empty());
+        let manifests: Vec<_> = catalog
+            .manifests()
+            .into_iter()
+            .map(|(manifest, _)| manifest)
+            .collect();
+        let ids: Vec<_> = manifests
+            .iter()
+            .map(|manifest| manifest.id.as_str())
+            .collect();
+        assert!(ids.contains(&"dev.cursorbyok.examples.codex-auth"));
+        assert!(ids.contains(&"dev.cursorbyok.examples.grok-auth"));
+        assert!(ids.contains(&"dev.cursorbyok.plugins.antigravity-auth"));
+        assert!(ids.contains(&"dev.cursorbyok.plugins.magpie"));
+        let magpie = manifests
+            .iter()
+            .find(|manifest| manifest.id == "dev.cursorbyok.plugins.magpie")
+            .unwrap();
+        assert!(magpie.permissions.resource_origin);
+        assert!(magpie.permissions.network.is_empty());
+        for manifest in manifests
+            .iter()
+            .filter(|manifest| manifest.id != "dev.cursorbyok.plugins.magpie")
+        {
+            assert!(!manifest.permissions.resource_origin);
+            assert!(!manifest.permissions.network.is_empty());
+        }
     }
 
     fn provider(
