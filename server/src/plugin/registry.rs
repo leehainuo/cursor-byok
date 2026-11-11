@@ -1261,20 +1261,17 @@ impl PluginRegistry {
         provider: &ProviderDefinition,
     ) -> bool {
         let plugin_id = &entry.manifest.id;
-        match &provider.resource_type {
-            Some(resource_type) => {
-                if self
-                    .inner
-                    .state
-                    .resources(plugin_id, resource_type)
-                    .await
-                    .unwrap_or_default()
-                    .is_empty()
-                {
-                    return false;
-                }
+        if let Some(resource_type) = &provider.resource_type {
+            if self
+                .inner
+                .state
+                .resources(plugin_id, resource_type)
+                .await
+                .unwrap_or_default()
+                .is_empty()
+            {
+                return false;
             }
-            None => {}
         }
         if provider.has_models && provider.catalog == SNAPSHOT_CATALOG {
             let models = self
