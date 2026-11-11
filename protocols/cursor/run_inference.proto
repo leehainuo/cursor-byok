@@ -252,6 +252,7 @@ message InferenceExtendedUsageInfo {
   int32 cache_read_tokens = 3;
   int32 cache_write_tokens = 4;
   int32 max_tokens = 5;
+  optional int32 reasoning_tokens = 6;
 }
 
 message InferenceStreamError {

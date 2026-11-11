@@ -6,13 +6,18 @@ use serde_json::{Map, Value};
 use crate::{
     cursor::protocol::proto::inference as pb,
     model::{
-        ContentPart, ModelRequest, ModelSpec, ProjectedContent, ProjectedMessage, PromptSpec,
-        ProviderReplayState, Role, ToolCallContent, ToolDefinition, ToolResultContent,
+        parse_token_count, ContentPart, ModelRequest, ModelSpec, ProjectedContent,
+        ProjectedMessage, PromptSpec, ProviderReplayState, Role, ToolCallContent, ToolDefinition,
+        ToolResultContent,
     },
     Error, Result,
 };
 
-pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Result<ModelRequest> {
+pub(crate) fn project(
+    input: &pb::InferenceStreamRequest,
+    model_id: &str,
+    configured_context_window_tokens: Option<u64>,
+) -> Result<ModelRequest> {
     let mut model = ModelSpec::new(model_id);
     if let Some(config) = &input.model_config {
         model.max_output_tokens = config
@@ -33,11 +38,20 @@ pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Res
     if let Some(requested) = &input.requested_model {
         model.reasoning.enabled = requested.max_mode;
         for parameter in &requested.parameters {
-            if matches!(parameter.id.as_str(), "effort" | "reasoning") {
-                model.reasoning.effort = Some(parameter.value.clone());
-                model.reasoning.enabled = true;
+            match parameter.id.as_str() {
+                "effort" | "reasoning" => {
+                    model.reasoning.effort = Some(parameter.value.clone());
+                    model.reasoning.enabled = true;
+                }
+                "context" => {
+                    model.context_window_tokens = Some(parse_context_tokens(&parameter.value)?);
+                }
+                _ => {}
             }
         }
+    }
+    if model.context_window_tokens.is_none() {
+        model.context_window_tokens = configured_context_window_tokens;
     }
 
     let tools = input
@@ -175,6 +189,25 @@ pub(crate) fn project(input: &pb::InferenceStreamRequest, model_id: &str) -> Res
     })
 }
 
+pub(crate) fn requested_context_window(
+    requested: Option<&pb::InferenceRequestedModel>,
+) -> Result<Option<u64>> {
+    let Some(requested) = requested else {
+        return Ok(None);
+    };
+    requested
+        .parameters
+        .iter()
+        .find(|parameter| parameter.id == "context")
+        .map(|parameter| parse_context_tokens(&parameter.value))
+        .transpose()
+}
+
+fn parse_context_tokens(value: &str) -> Result<u64> {
+    parse_token_count(value)
+        .ok_or_else(|| Error::Protocol(format!("invalid Cursor context token count: {value}")))
+}
+
 fn parts(content: Option<&pb::inference_core_message::Content>) -> Result<Vec<ContentPart>> {
     match content {
         Some(pb::inference_core_message::Content::Text(text)) => {
@@ -263,10 +296,10 @@ mod tests {
             messages: vec![text(4, "You are an assistant"), text(1, "First question")],
             ..Default::default()
         };
-        let first = project(&input, "test-model").unwrap();
+        let first = project(&input, "test-model", None).unwrap();
         input.messages.push(text(2, "First answer"));
         input.messages.push(text(1, "Second question"));
-        let second = project(&input, "test-model").unwrap();
+        let second = project(&input, "test-model", None).unwrap();
 
         assert_eq!(first.prompt.instructions, second.prompt.instructions);
         assert_eq!(first.history, second.history[..first.history.len()]);
@@ -302,11 +335,62 @@ mod tests {
             ..Default::default()
         };
 
-        let request = project(&input, "test-model").unwrap();
+        let request = project(&input, "test-model", None).unwrap();
         assert_eq!(
             request.prompt.tools[0].parameters,
             serde_json::json!({"type":"object"})
         );
+    }
+
+    #[test]
+    fn selector_context_becomes_the_model_window() {
+        let request = project(
+            &pb::InferenceStreamRequest {
+                requested_model: Some(requested_context("200k")),
+                ..Default::default()
+            },
+            "test-model",
+            Some(100_000),
+        )
+        .unwrap();
+        assert_eq!(request.model.context_window_tokens, Some(200_000));
+    }
+
+    #[test]
+    fn configured_window_fills_in_when_the_selector_omits_context() {
+        let request = project(
+            &pb::InferenceStreamRequest::default(),
+            "test-model",
+            Some(128_000),
+        )
+        .unwrap();
+        assert_eq!(request.model.context_window_tokens, Some(128_000));
+    }
+
+    #[test]
+    fn invalid_selector_context_is_a_protocol_error() {
+        let error = project(
+            &pb::InferenceStreamRequest {
+                requested_model: Some(requested_context("huge")),
+                ..Default::default()
+            },
+            "test-model",
+            Some(128_000),
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("invalid Cursor context token count"));
+    }
+
+    fn requested_context(value: &str) -> pb::InferenceRequestedModel {
+        pb::InferenceRequestedModel {
+            parameters: vec![pb::InferenceModelParameterValue {
+                id: "context".into(),
+                value: value.into(),
+            }],
+            ..Default::default()
+        }
     }
 
     fn text(role: i32, content: &str) -> pb::InferenceCoreMessage {
