@@ -187,17 +187,17 @@ async fn serve(
     let mut finished = false;
     let mut provider_call_index = 0;
     let configured_context_window = model.as_ref().and_then(|model| model.context_window_tokens);
+    let mut run_context_window = configured_context_window;
     while let Some(message) = input.recv().await {
         use pb::run_inference_client_message::Message;
         match message.message {
             Some(Message::RunRequest(request)) => {
                 let requested_window =
-                    project::requested_context_window(request.requested_model.as_ref()).ok();
-                if requested_window
-                    .flatten()
-                    .or(configured_context_window)
-                    .is_none()
-                {
+                    project::requested_context_window(request.requested_model.as_ref())
+                        .ok()
+                        .flatten();
+                run_context_window = requested_window.or(configured_context_window);
+                if run_context_window.is_none() {
                     tracing::info!(
                         request_id = %run_id,
                         model_id,
@@ -224,8 +224,7 @@ async fn serve(
                     );
                     continue;
                 }
-                let request = match project::project(&request, &model_id, configured_context_window)
-                {
+                let request = match project::project(&request, &model_id, run_context_window) {
                     Ok(request) => request,
                     Err(error) => {
                         invocation_error(&output, id, &error.to_string());

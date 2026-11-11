@@ -232,6 +232,124 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
     );
 }
 
+#[tokio::test]
+async fn client_loop_uses_run_request_selector_window_when_invoke_omits_context() {
+    let (_directory, store) = temp_store().await;
+    let provider = FakeProvider::default();
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: "invoke-1".into(),
+        },
+        ModelEvent::Usage(Usage {
+            input_tokens: Some(80),
+            context_input_tokens: Some(120),
+            output_tokens: Some(40),
+            total_tokens: Some(160),
+            cache_read_tokens: Some(20),
+            cache_write_tokens: Some(10),
+            reasoning_tokens: Some(8),
+        }),
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    let (_router_directory, router) = router(store, provider.clone());
+    let request_id = "plugin-inference-window";
+    let model_id = "plugin:dev.cursorbyok.plugins.magpie/magpie/test/grok-4.6";
+    append(
+        &router,
+        request_id,
+        0,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::RunRequest(
+                pb::RunInferenceRunRequest {
+                    conversation_id: "conversation-plugin".into(),
+                    requested_model: Some(pb::InferenceRequestedModel {
+                        model_id: model_id.into(),
+                        parameters: vec![pb::InferenceModelParameterValue {
+                            id: "context".into(),
+                            value: "1m".into(),
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post("/aiserver.v1.InferenceService/RunInferenceSSE")
+                .header(header::CONTENT_TYPE, "application/proto")
+                .body(Body::from(
+                    connect::encode_message(&agent::BidiRequestId {
+                        request_id: request_id.into(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let ready = next_message(&mut stream).await;
+    assert!(matches!(
+        ready.message,
+        Some(pb::run_inference_server_message::Message::RunReady(_))
+    ));
+
+    append(
+        &router,
+        request_id,
+        1,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::InvokeModel(
+                pb::RunInferenceInvokeModel {
+                    invocation_id: "invoke-1".into(),
+                    request: Some(pb::InferenceStreamRequest {
+                        messages: vec![pb::InferenceCoreMessage {
+                            role: 1,
+                            content: Some(pb::inference_core_message::Content::Text(
+                                "Read a.rs".into(),
+                            )),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+
+    let mut extended_usage = None;
+    loop {
+        let message = next_message(&mut stream).await;
+        match message.message.unwrap() {
+            pb::run_inference_server_message::Message::InvocationResponse(response) => {
+                if let pb::inference_stream_response::Response::ExtendedUsage(value) =
+                    response.response.unwrap().response.unwrap()
+                {
+                    extended_usage = Some(value);
+                }
+            }
+            pb::run_inference_server_message::Message::InvocationEnd(end) => {
+                assert_eq!(end.invocation_id, "invoke-1");
+                assert!(end.error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let extended = extended_usage.expect("extended usage");
+    assert_eq!(extended.max_tokens, 1_000_000);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].model.context_window_tokens, Some(1_000_000));
+}
+
 async fn append(
     router: &axum::Router,
     request_id: &str,
