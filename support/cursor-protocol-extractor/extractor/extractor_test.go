@@ -279,10 +279,7 @@ InferenceReason=enumType(proto3,__protoPackage117,"InferenceReason",[[0,"UNSPECI
 __protoPackage117="aiserver.v1.";
 var Pf1={typeName:"aiserver.v1.InferenceService",methods:{runInference:{name:"RunInference",I:z7t,O:hf1,kind:ye.BiDiStreaming},runInferenceSSE:{name:"RunInferenceSSE",I:j$e,O:hf1,kind:ye.ServerStreaming},recordEmpty:{name:"RecordEmpty",I:z7t,O:r.Empty,kind:ye.Unary}}};
 `
-	moduleStarts := buildModuleStarts(bundle)
-	messages := extractMessages(bundle, moduleStarts)
-	enums := extractEnums(bundle, moduleStarts)
-	reclassifyEnumFields(messages, enums)
+	messages, enums, services := extractResolvedBundle(bundle)
 
 	byType := map[string]Message{}
 	for _, message := range messages {
@@ -325,12 +322,9 @@ var Pf1={typeName:"aiserver.v1.InferenceService",methods:{runInference:{name:"Ru
 		t.Fatalf("unexpected reason enum: %#v", reason)
 	}
 
-	services := extractServices(bundle, moduleStarts)
 	if len(services) != 1 || services[0].TypeName != "aiserver.v1.InferenceService" {
 		t.Fatalf("unexpected services: %#v", services)
 	}
-	resolver := newTypeResolver(messages, enums, nil, nil)
-	normalizeTypeReferences(messages, services, resolver)
 	if services[0].Methods[2].OutputType != "google.protobuf.Empty" {
 		t.Fatalf("RecordEmpty output: %#v", services[0].Methods[2])
 	}
@@ -358,6 +352,121 @@ service InferenceService {
 	}
 }
 
+// TestCompactTypeIndexDoesNotLeakAcrossModules 验证跨模块同名变量按模块解析。
+func TestCompactTypeIndexDoesNotLeakAcrossModules(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["First|1 text 9"]}}
+class H extends B1 {static $(){return["Holder|1 child #0",T]}}
+},
+2:(e,t,n)=>{
+Q="aiserver.v1.";
+class B2 extends Base {static $p(){return Q}}
+class T extends B2 {static $(){return["Second|1 count 5"]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	if holder == nil {
+		t.Fatalf("missing agent.v1.Holder, got %#v", messages)
+	}
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.First" {
+		t.Fatalf("agent.v1.Holder.child = %#v, want agent.v1.First", child)
+	}
+}
+
+// TestCompactDuplicateDeclarationsReachCompletenessMerge 验证重复声明在解析后按 completeness 合并。
+func TestCompactDuplicateDeclarationsReachCompletenessMerge(t *testing.T) {
+	const bundle = `
+P="aiserver.v1.";
+class B extends Base {static $p(){return P}}
+class A extends B {static $(){return["Metadata|1 vendor 9"]}}
+class C extends B {static $(){return["Metadata|1 vendor 9|46 agent_mode_configs #0*",D]}}
+class D extends B {static $(){return["Mode|1 mode_id 9"]}}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	if countMessagesByType(messages, "aiserver.v1.Metadata") != 2 {
+		t.Fatalf("expected both Metadata declarations before merge, got %#v", messages)
+	}
+	merged := mergeMessagesByTypeName(messages)
+	metadata := messageByType(merged, "aiserver.v1.Metadata")
+	if metadata == nil || len(metadata.Fields) != 2 {
+		t.Fatalf("Metadata fields = %#v, want vendor + agent_mode_configs", metadata)
+	}
+	configs := fieldByName(metadata.Fields, "agent_mode_configs")
+	if configs == nil || !configs.Repeated || configs.T != "aiserver.v1.Mode" {
+		t.Fatalf("agent_mode_configs: %#v", configs)
+	}
+}
+
+// TestCompactDuplicateEnumsReachCompletenessMerge 验证重复枚举声明在解析后按 completeness 合并。
+func TestCompactDuplicateEnumsReachCompletenessMerge(t *testing.T) {
+	const bundle = `
+P="aiserver.v1.";
+Partial=enumType(proto3,P,"Role",[[0,"UNSPECIFIED"]],1);
+Complete=enumType(proto3,P,"Role",[[0,"UNSPECIFIED"],[1,"USER"],[2,"ASSISTANT"]],1);
+`
+	_, enums, _ := extractResolvedBundle(bundle)
+	if countEnumsByType(enums, "aiserver.v1.Role") != 2 {
+		t.Fatalf("expected both Role declarations before merge, got %#v", enums)
+	}
+	merged := mergeEnumsByTypeName(enums)
+	role := enumByName(merged, "aiserver.v1.Role")
+	if role == nil || len(role.Values) != 3 || role.Values[1].Name != "ROLE_USER" {
+		t.Fatalf("merged Role = %#v", role)
+	}
+}
+
+// TestCompactResolverPrefersSamePackageOverCrossPackageNamesakes 验证跨包同名类型优先当前包。
+func TestCompactResolverPrefersSamePackageOverCrossPackageNamesakes(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["Shared|1 local 9"]}}
+class H extends B1 {static $(){return["Holder|1 child #0",T]}}
+},
+2:(e,t,n)=>{
+Q="aiserver.v1.";
+class B2 extends Base {static $p(){return Q}}
+class T extends B2 {static $(){return["Shared|1 remote 5"]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.Shared" {
+		t.Fatalf("agent.v1.Holder.child = %#v, want agent.v1.Shared", child)
+	}
+}
+
+// TestCompactExportAliasResolvesImportedType 验证模块导出别名解析 compact 字段引用。
+func TestCompactExportAliasResolvesImportedType(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+n.d(t,{KS:()=>T});
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["First|1 text 9"]}}
+},
+2:(e,t,n)=>{
+var r=n(1);
+Q="agent.v1.";
+class B2 extends Base {static $p(){return Q}}
+class H extends B2 {static $(){return["Holder|1 child #0",r.KS]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.First" {
+		t.Fatalf("imported alias child = %#v, want agent.v1.First", child)
+	}
+}
+
 func keysOf(messages map[string]Message) []string {
 	names := make([]string, 0, len(messages))
 	for name := range messages {
@@ -382,4 +491,33 @@ func enumByName(enums []Enum, typeName string) *Enum {
 		}
 	}
 	return nil
+}
+
+func messageByType(messages []Message, typeName string) *Message {
+	for i := range messages {
+		if messages[i].TypeName == typeName {
+			return &messages[i]
+		}
+	}
+	return nil
+}
+
+func countMessagesByType(messages []Message, typeName string) int {
+	count := 0
+	for _, message := range messages {
+		if message.TypeName == typeName {
+			count++
+		}
+	}
+	return count
+}
+
+func countEnumsByType(enums []Enum, typeName string) int {
+	count := 0
+	for _, enum := range enums {
+		if enum.TypeName == typeName {
+			count++
+		}
+	}
+	return count
 }

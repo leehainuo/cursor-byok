@@ -248,6 +248,17 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
     );
 }
 
+#[tokio::test]
+async fn plan_ask_and_debug_local_loops_complete_a_turn() {
+    let (_directory, store) = temp_store().await;
+    let model = store.create_model(&model_input()).await.unwrap();
+    let provider = FakeProvider::default();
+    let (_router_directory, router) = router(store, provider.clone());
+    for mode in ["chat", "plan", "debug"] {
+        complete_local_loop_turn(&router, &provider, &model.model_hash, mode).await;
+    }
+}
+
 async fn append(
     router: &axum::Router,
     request_id: &str,
@@ -287,6 +298,148 @@ where
     let (flags, bytes) = connect::decode_frames(&frame).unwrap().pop().unwrap();
     assert_eq!(flags, 0);
     pb::RunInferenceServerMessage::decode(bytes).unwrap()
+}
+
+async fn complete_local_loop_turn(
+    router: &axum::Router,
+    provider: &FakeProvider,
+    model_id: &str,
+    mode: &str,
+) {
+    let request_id = format!("inference-{mode}");
+    append(
+        router,
+        &request_id,
+        0,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::RunRequest(
+                pb::RunInferenceRunRequest {
+                    conversation_id: format!("conversation-{mode}"),
+                    requested_model: Some(pb::InferenceRequestedModel {
+                        model_id: model_id.into(),
+                        ..Default::default()
+                    }),
+                    agent_mode: Some(mode.into()),
+                    turn_agent_mode: Some(mode.into()),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post("/aiserver.v1.InferenceService/RunInferenceSSE")
+                .header(header::CONTENT_TYPE, "application/proto")
+                .body(Body::from(
+                    connect::encode_message(&agent::BidiRequestId {
+                        request_id: request_id.clone(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let ready = next_message(&mut stream).await;
+    let Some(pb::run_inference_server_message::Message::RunReady(ready)) = ready.message else {
+        panic!("expected run_ready for {mode}");
+    };
+    let metadata = ready.prompt_model_metadata.unwrap();
+    let config = metadata
+        .agent_mode_configs
+        .iter()
+        .find(|config| config.mode_id == mode)
+        .unwrap_or_else(|| panic!("missing {mode} tool decisions"));
+    assert!(config.enable_ask_question_tool);
+    assert!(config.switch_mode_tool_config.is_none());
+    assert_eq!(
+        metadata.ask_question_config.as_ref().unwrap().tool_name,
+        "AskQuestion"
+    );
+
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: format!("{mode}-invoke"),
+        },
+        ModelEvent::TextStart,
+        ModelEvent::TextDelta(format!("{mode} complete")),
+        ModelEvent::TextEnd,
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    append(
+        router,
+        &request_id,
+        1,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::InvokeModel(
+                pb::RunInferenceInvokeModel {
+                    invocation_id: format!("{mode}-invoke"),
+                    request: Some(pb::InferenceStreamRequest {
+                        messages: vec![pb::InferenceCoreMessage {
+                            role: 1,
+                            content: Some(pb::inference_core_message::Content::Text(
+                                format!("Run {mode}").into(),
+                            )),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+
+    let mut text = String::new();
+    loop {
+        let message = next_message(&mut stream).await;
+        match message.message.unwrap() {
+            pb::run_inference_server_message::Message::InvocationResponse(response) => {
+                if let pb::inference_stream_response::Response::TextPart(part) =
+                    response.response.unwrap().response.unwrap()
+                {
+                    text.push_str(&part.text);
+                }
+            }
+            pb::run_inference_server_message::Message::InvocationEnd(end) => {
+                assert_eq!(end.invocation_id, format!("{mode}-invoke"));
+                assert!(end.error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(text, format!("{mode} complete"));
+
+    append(
+        router,
+        &request_id,
+        2,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::FinishRun(
+                pb::RunInferenceFinishRun {
+                    aborted: false,
+                    turn_completed: Some(true),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+    let end = tokio::time::timeout(std::time::Duration::from_secs(3), stream.next())
+        .await
+        .expect("end frame timed out")
+        .expect("inference stream ended before its end frame")
+        .unwrap();
+    assert_eq!(
+        connect::decode_frames(&end).unwrap()[0].0,
+        connect::END_STREAM_FLAG
+    );
 }
 
 fn router(store: crate::store::Store, provider: FakeProvider) -> (tempfile::TempDir, axum::Router) {

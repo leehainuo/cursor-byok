@@ -93,22 +93,11 @@ func ExtractProtosFromFiles(inputFiles []string, outputDir string) {
 		}
 
 		text := string(content)
-		moduleStarts := buildModuleStarts(text)
-		aliases := buildAliasIndex(text, moduleStarts)
-		exportAliases := buildWebpackExportAliasIndex(text, moduleStarts)
-
-		messages := extractMessages(text, moduleStarts)
-		enums := extractEnums(text, moduleStarts)
-		services := extractServices(text, moduleStarts)
+		messages, enums, services := extractResolvedBundle(text)
 		declared, extracted, missing := declarationCoverage(text, messages, enums, services)
 		activeDiagnostics.declaredTypes += declared
 		activeDiagnostics.extractedTypes += extracted
 		activeDiagnostics.missingDeclarations = append(activeDiagnostics.missingDeclarations, missing...)
-
-		resolver := newTypeResolver(messages, enums, aliases, exportAliases)
-		resolver.moduleImports = buildModuleImportIndex(text, moduleStarts)
-		reclassifyEnumFields(messages, enums)
-		normalizeTypeReferences(messages, services, resolver)
 
 		allMessages = append(allMessages, messages...)
 		allEnums = append(allEnums, enums...)
@@ -146,6 +135,25 @@ func ExtractProtosFromFiles(inputFiles []string, outputDir string) {
 	}
 
 	fmt.Printf("提取完成: %d 个消息, %d 个枚举, %d 个服务\n", len(messages), len(enums), len(services))
+}
+
+// extractResolvedBundle 提取一个 bundle 的声明，保留重复项，并用 TypeResolver 解析原始引用。
+func extractResolvedBundle(text string) ([]Message, []Enum, []Service) {
+	moduleStarts := buildModuleStarts(text)
+	messages := extractMessages(text, moduleStarts)
+	enums := extractEnums(text, moduleStarts)
+	services := extractServices(text, moduleStarts)
+	resolver := newTypeResolver(
+		messages,
+		enums,
+		buildAliasIndex(text, moduleStarts),
+		buildWebpackExportAliasIndex(text, moduleStarts),
+	)
+	resolver.moduleImports = buildModuleImportIndex(text, moduleStarts)
+	reclassifyEnumFields(messages, enums)
+	normalizeTypeReferences(messages, services, resolver)
+	reclassifyEnumFields(messages, enums)
+	return messages, enums, services
 }
 
 // normalizeTypeReferences 把字段和方法引用统一转换为全限定类型名。

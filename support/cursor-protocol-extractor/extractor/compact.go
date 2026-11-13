@@ -31,12 +31,8 @@ type compactPrefix struct {
 	Pos     int
 }
 
-type compactPendingMessage struct {
-	msg      Message
-	typeRefs []string
-}
-
 // extractCompactMessages 从 static $(){return["Type|fields", TypeRef...]} 提取消息。
+// 保留重复声明，并把 #N 展开为原始类型符号，交给 TypeResolver 按模块解析。
 func extractCompactMessages(text string, moduleStarts []int) []Message {
 	prefixes := extractCompactPrefixes(text)
 	classes := extractCompactClasses(text)
@@ -45,8 +41,7 @@ func extractCompactMessages(text string, moduleStarts []int) []Message {
 		return nil
 	}
 
-	pending := make([]compactPendingMessage, 0, len(matches))
-	seen := make(map[string]bool)
+	messages := make([]Message, 0, len(matches))
 	for _, match := range matches {
 		arrayStart := strings.LastIndex(text[match[0]:match[1]], "[")
 		if arrayStart < 0 {
@@ -65,58 +60,18 @@ func extractCompactMessages(text string, moduleStarts []int) []Message {
 		if pkg == "" || isGooglePkg(pkg) {
 			continue
 		}
-		typeName := pkg + "." + shortName
-		if seen[typeName] {
-			continue
-		}
-		seen[typeName] = true
-		pending = append(pending, compactPendingMessage{
-			msg: Message{
-				TypeName:    typeName,
-				VarName:     compactClassNameAt(start, classes),
-				Fields:      fields,
-				Package:     pkg,
-				ShortName:   shortName,
-				Pos:         start,
-				ModuleStart: moduleStartForPos(moduleStarts, start),
-			},
-			typeRefs: typeRefs,
+		expandCompactFieldRefs(fields, typeRefs)
+		messages = append(messages, Message{
+			TypeName:    pkg + "." + shortName,
+			VarName:     compactClassNameAt(start, classes),
+			Fields:      fields,
+			Package:     pkg,
+			ShortName:   shortName,
+			Pos:         start,
+			ModuleStart: moduleStartForPos(moduleStarts, start),
 		})
 	}
-
-	byVar, byShort := compactTypeIndex(pending, extractCompactEnums(text, moduleStarts))
-	messages := make([]Message, 0, len(pending))
-	for _, item := range pending {
-		qualifyCompactFields(item.msg.Fields, item.typeRefs, item.msg.Package, byVar, byShort)
-		messages = append(messages, item.msg)
-	}
 	return messages
-}
-
-func compactTypeIndex(pending []compactPendingMessage, enums []Enum) (map[string]string, map[string]string) {
-	byVar := make(map[string]string, len(pending)+len(enums))
-	byShort := make(map[string]string, len(pending)+len(enums))
-	add := func(varName, shortName, typeName string) {
-		if typeName == "" {
-			return
-		}
-		if varName != "" {
-			byVar[varName] = typeName
-		}
-		if shortName != "" {
-			byShort[shortName] = typeName
-			if idx := strings.LastIndex(shortName, "."); idx >= 0 {
-				byShort[shortName[idx+1:]] = typeName
-			}
-		}
-	}
-	for _, item := range pending {
-		add(item.msg.VarName, item.msg.ShortName, item.msg.TypeName)
-	}
-	for _, enum := range enums {
-		add(enum.VarName, enum.ShortName, enum.TypeName)
-	}
-	return byVar, byShort
 }
 
 // extractCompactEnums 从 enumType(...) 与 (0,s.QT)(...) 提取枚举。
@@ -128,7 +83,6 @@ func extractCompactEnums(text string, moduleStarts []int) []Enum {
 	}
 
 	enums := make([]Enum, 0, len(matches))
-	seen := make(map[string]bool)
 	for _, match := range matches {
 		varName := text[match[2]:match[3]]
 		pkgExpr := text[match[4]:match[5]]
@@ -141,14 +95,9 @@ func extractCompactEnums(text string, moduleStarts []int) []Enum {
 		if pkg == "" || isGooglePkg(pkg) {
 			continue
 		}
-		typeName := pkg + "." + shortName
-		if seen[typeName] {
-			continue
-		}
-		seen[typeName] = true
 		values := extractCompactEnumValues(extractBracketSlice(text, bracketStart), shortName)
 		enums = append(enums, Enum{
-			TypeName:    typeName,
+			TypeName:    pkg + "." + shortName,
 			VarName:     varName,
 			Values:      values,
 			Package:     pkg,
@@ -462,8 +411,8 @@ func compactTypeToken(token string) (string, any) {
 	return "message", token
 }
 
-func qualifyCompactFields(fields []Field, typeRefs []string, pkg string, byVar, byShort map[string]string) {
-	qualify := func(token any) any {
+func expandCompactFieldRefs(fields []Field, typeRefs []string) {
+	expand := func(token any) any {
 		ref, ok := token.(string)
 		if !ok || !strings.HasPrefix(ref, "#") {
 			return token
@@ -472,46 +421,16 @@ func qualifyCompactFields(fields []Field, typeRefs []string, pkg string, byVar, 
 		if err != nil || index < 0 || index >= len(typeRefs) {
 			return token
 		}
-		return qualifyCompactTypeRef(typeRefs[index], pkg, byVar, byShort)
+		return strings.TrimSpace(typeRefs[index])
 	}
 	for i := range fields {
 		field := &fields[i]
 		if field.Kind == "map" {
-			field.MapValueT = qualify(field.MapValueT)
+			field.MapValueT = expand(field.MapValueT)
 			continue
 		}
-		field.T = qualify(field.T)
+		field.T = expand(field.T)
 	}
-}
-
-func qualifyCompactTypeRef(ref, pkg string, byVar, byShort map[string]string) string {
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return ref
-	}
-	if typeName, ok := byVar[ref]; ok {
-		return typeName
-	}
-	last := ref
-	if idx := strings.LastIndex(ref, "."); idx >= 0 {
-		last = ref[idx+1:]
-	}
-	if typeName, ok := byVar[last]; ok {
-		return typeName
-	}
-	if typeName, ok := googleWellKnownTypes[last]; ok {
-		return typeName
-	}
-	if looksLikeFullTypeName(ref) {
-		return ref
-	}
-	if typeName, ok := byShort[last]; ok {
-		return typeName
-	}
-	if pkg == "" {
-		return last
-	}
-	return pkg + "." + last
 }
 
 func extractCompactEnumValues(arrayText, shortName string) []EnumValue {
