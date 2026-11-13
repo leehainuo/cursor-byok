@@ -381,9 +381,9 @@ async fn complete_local_loop_turn(
                     request: Some(pb::InferenceStreamRequest {
                         messages: vec![pb::InferenceCoreMessage {
                             role: 1,
-                            content: Some(pb::inference_core_message::Content::Text(
-                                format!("Run {mode}"),
-                            )),
+                            content: Some(pb::inference_core_message::Content::Text(format!(
+                                "Run {mode}"
+                            ))),
                             ..Default::default()
                         }],
                         ..Default::default()
