@@ -382,7 +382,7 @@ async fn complete_local_loop_turn(
                         messages: vec![pb::InferenceCoreMessage {
                             role: 1,
                             content: Some(pb::inference_core_message::Content::Text(
-                                format!("Run {mode}").into(),
+                                format!("Run {mode}"),
                             )),
                             ..Default::default()
                         }],
