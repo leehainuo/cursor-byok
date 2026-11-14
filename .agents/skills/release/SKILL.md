@@ -5,11 +5,11 @@ description: Prepare, authorize, publish, troubleshoot, and verify Cursor BYOK d
 
 # Desktop release
 
-Release through `.github/workflows/release.yml` in `leehainuo/cursor-byok`. The independent release series starts at `1.0.0`.
+Release through `.github/workflows/release.yml` in `hainuoli/cursor-byok`. The independent release series starts at `1.0.0`.
 
 ## Publication authority
 
-- The maintainer, GitHub user `leehainuo`, authorizes releases. Verify the authenticated account before publication.
+- The maintainer, GitHub user `hainuoli`, authorizes releases. Verify the authenticated account before publication.
 - Require an explicit instruction to publish before pushing a `v*` tag, rerunning a release workflow, or publishing or editing a GitHub Release. Preparing a commit or configuring the repository does not authorize publication.
 - Ordinary pushes to `main` run CI only. Release tags must point to commits contained in `origin/main`.
 - Never print or commit `.tauri/cursor-byok.key`. Upload it only to this repository's `TAURI_SIGNING_PRIVATE_KEY` Actions secret when the maintainer authorizes signing-secret configuration. Preserve a secure backup of the key: changing it breaks updates for installed clients.
