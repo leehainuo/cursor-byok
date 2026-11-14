@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use crate::{
     cursor::{
-        protocol::proto::agent::v1 as pb, services::context_sync::RequestContextSynchronizer,
+        protocol::{json::prost_json, proto::agent::v1 as pb},
+        services::context_sync::RequestContextSynchronizer,
         tools::runtime::McpRoute,
     },
     model::{normalize_tool_name, ToolDefinition},
@@ -364,7 +365,7 @@ fn mcp_input_schema(tool: &pb::McpToolDescriptor) -> Option<String> {
         .or_else(|| {
             tool.input_schema
                 .as_ref()
-                .map(prost_value)
+                .map(prost_json)
                 .map(|value| value.to_string())
         })
 }
@@ -488,7 +489,7 @@ pub fn dynamic_mcp(
         }
         let parameters = match wire.input_schema_json.as_deref() {
             Some(json) if !json.trim().is_empty() => serde_json::from_str(json)?,
-            _ => prost_value(wire.input_schema.as_ref().ok_or_else(|| {
+            _ => prost_json(wire.input_schema.as_ref().ok_or_else(|| {
                 Error::Protocol(format!("MCP tool {} is missing input schema", wire.name))
             })?),
         };
@@ -512,6 +513,7 @@ pub fn dynamic_mcp(
 }
 
 fn normalize_mcp_parameters(tool_name: &str, mut parameters: Value) -> Result<Value> {
+    normalize_schema_counts(&mut parameters);
     let schema = parameters
         .as_object_mut()
         .ok_or_else(|| invalid_mcp_parameters(tool_name))?;
@@ -547,32 +549,58 @@ fn normalize_mcp_parameters(tool_name: &str, mut parameters: Value) -> Result<Va
     Ok(parameters)
 }
 
+fn normalize_schema_counts(schema: &mut Value) {
+    let Some(keywords) = schema.as_object_mut() else {
+        return;
+    };
+    for (keyword, value) in keywords {
+        match keyword.as_str() {
+            "minLength" | "maxLength" | "minItems" | "maxItems" | "minContains" | "maxContains"
+            | "minProperties" | "maxProperties" => {
+                // Cursor can transport these counts as protobuf doubles. Some
+                // providers require an integer JSON token, even without strict mode.
+                if let Some(count) = value
+                    .as_number()
+                    .filter(|number| number.is_f64())
+                    .and_then(serde_json::Number::as_f64)
+                    .filter(|n| (0.0..=9_007_199_254_740_991.0).contains(n) && n.fract() == 0.0)
+                {
+                    *value = Value::from(count as u64);
+                }
+            }
+            "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas"
+            | "dependencies" => {
+                if let Some(children) = value.as_object_mut() {
+                    children.values_mut().for_each(normalize_schema_counts);
+                }
+            }
+            "allOf" | "anyOf" | "oneOf" | "prefixItems" | "items" => {
+                if let Some(children) = value.as_array_mut() {
+                    children.iter_mut().for_each(normalize_schema_counts);
+                } else if keyword == "items" {
+                    normalize_schema_counts(value);
+                }
+            }
+            "additionalItems"
+            | "additionalProperties"
+            | "contains"
+            | "contentSchema"
+            | "else"
+            | "if"
+            | "not"
+            | "propertyNames"
+            | "then"
+            | "unevaluatedItems"
+            | "unevaluatedProperties" => normalize_schema_counts(value),
+            _ => {}
+        }
+    }
+}
+
 fn invalid_mcp_parameters(tool_name: &str) -> Error {
     Error::Protocol(format!(
         "MCP tool {tool_name} input schema must describe an object"
     ))
-}
-
-fn prost_value(value: &prost_types::Value) -> Value {
-    use prost_types::value::Kind;
-    match value.kind.as_ref() {
-        None | Some(Kind::NullValue(_)) => Value::Null,
-        Some(Kind::NumberValue(value)) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        Some(Kind::StringValue(value)) => Value::String(value.clone()),
-        Some(Kind::BoolValue(value)) => Value::Bool(*value),
-        Some(Kind::StructValue(value)) => Value::Object(
-            value
-                .fields
-                .iter()
-                .map(|(key, value)| (key.clone(), prost_value(value)))
-                .collect(),
-        ),
-        Some(Kind::ListValue(value)) => {
-            Value::Array(value.values.iter().map(prost_value).collect())
-        }
-    }
 }
 
 fn xml(value: &str) -> String {
@@ -586,6 +614,80 @@ fn xml(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_control_mcp_counts_use_integer_json_tokens() {
+        use prost_types::{value::Kind, Struct, Value as ProtoValue};
+
+        fn object<const N: usize>(fields: [(&str, Kind); N]) -> Kind {
+            Kind::StructValue(Struct {
+                fields: fields
+                    .into_iter()
+                    .map(|(key, kind)| (key.into(), ProtoValue { kind: Some(kind) }))
+                    .collect(),
+            })
+        }
+
+        let context = pb::RequestContext {
+            tools: vec![
+                pb::McpToolDefinition {
+                    name: "cursor-app-control-install_plugin".into(),
+                    input_schema: Some(ProtoValue {
+                        kind: Some(object([
+                            ("type", Kind::StringValue("object".into())),
+                            (
+                                "properties",
+                                object([(
+                                    "pluginName",
+                                    object([
+                                        ("type", Kind::StringValue("string".into())),
+                                        ("minLength", Kind::NumberValue(1.0)),
+                                    ]),
+                                )]),
+                            ),
+                        ])),
+                    }),
+                    ..Default::default()
+                },
+                pb::McpToolDefinition {
+                    name: "nested-counts".into(),
+                    input_schema_json: Some(
+                        r#"{
+                            "type": "object",
+                            "properties": {
+                                "minLength": {
+                                    "type": "array",
+                                    "minItems": 0.0,
+                                    "items": {"anyOf": [
+                                        {"type": "string", "maxLength": 20.0},
+                                        {"type": "number", "minimum": 0.5}
+                                    ]},
+                                    "default": [{"minLength": 1.0}]
+                                }
+                            }
+                        }"#
+                        .into(),
+                    ),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let definitions = dynamic_mcp(&pb::AgentRunRequest::default(), &context).unwrap();
+        let install = &definitions["cursor-app-control-install_plugin"]
+            .1
+            .parameters;
+        assert_eq!(
+            install["properties"]["pluginName"]["minLength"].as_u64(),
+            Some(1)
+        );
+
+        let nested = &definitions["nested-counts"].1.parameters["properties"]["minLength"];
+        assert_eq!(nested["minItems"].as_u64(), Some(0));
+        assert_eq!(nested["items"]["anyOf"][0]["maxLength"].as_u64(), Some(20));
+        assert_eq!(nested["items"]["anyOf"][1]["minimum"].as_f64(), Some(0.5));
+        assert!(nested["default"][0]["minLength"].is_f64());
+    }
 
     fn rule(content: &str) -> pb::CursorRule {
         pb::CursorRule {

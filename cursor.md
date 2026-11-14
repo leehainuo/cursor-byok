@@ -668,3 +668,9 @@ Bidi
   → Transport
   → RunSSE
 ```
+
+## Cursor 3.29 协议兼容记录
+
+- Cursor 3.29.9 会以 `BidiAppend.data_binary` 发送原始 protobuf，也可能使用 `data` 发送同一消息的十六进制表示。BYOK 接收两种表示，经同一解码和路由流程处理；没有载荷或同时提供两种载荷时仍报协议错误。模型测速不会经过这条 Cursor 消息入口，因此测速通过不能证明实际对话可用。
+- Cursor 的 MCP 工具定义可能把 JSON Schema 计数写成 `1.0`。BYOK 将合法整数计数写成整数 JSON（例如 `minLength: 1`），以兼容严格检查数字类型的 Responses 服务。普通小数、默认值和示例不变。
+- 回归测试覆盖两种 `BidiAppend` 编码及 protobuf、JSON 两种 MCP 工具定义来源。基于 1.0.1 的 Windows 构建已用 Cursor 3.29.9 完成实际对话复测，其中原先拒绝工具定义的 Responses 调用返回 HTTP 200。

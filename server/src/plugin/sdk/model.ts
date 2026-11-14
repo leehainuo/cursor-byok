@@ -23,7 +23,14 @@ export type ModelListInput = {
   resource: ResourceSnapshot | null;
 };
 
+export type ModelCatalogMode = "snapshot" | "live";
+
 export type ModelSupport = {
-  /** 列举成功后,宿主用返回值整体替换该 Provider 的模型目录。 */
+  /**
+   * snapshot(缺省):列举成功后宿主把目录写入 `models-*.json`。
+   * live:目录不落盘,宿主按资源短缓存 `list` 的返回值。
+   */
+  catalog?: ModelCatalogMode;
+  /** snapshot 成功后整体替换落盘目录;live 只更新该资源的内存缓存。 */
   list(input: ModelListInput, context: PluginContext): Promise<ModelDefinition[]>;
 };

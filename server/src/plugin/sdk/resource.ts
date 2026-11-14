@@ -155,7 +155,27 @@ export type OAuth2AuthorizationCodeBegin = {
   pollIntervalMs?: number;
 };
 
-export type ResourceAddMethod = OAuth2AddMethod | OAuth2AuthorizationCodeAddMethod;
+/**
+ * 表单添加流程。宿主绘制字段并提交;插件只校验并返回 draft,不在未持久化前访问网络。
+ * 连通性由随后的 live `models.list` 报告。
+ */
+export type FormAddMethod = {
+  type: "form";
+  id: string;
+  displayName: LocalizedText;
+  fields: FormAddField[];
+  submit(values: Record<string, string>, context: PluginContext): Promise<ResourceDraft[]>;
+};
+
+export type FormAddField = {
+  id: string;
+  label: LocalizedText;
+  type: "url" | "secret" | "text";
+  required?: boolean;
+  placeholder?: LocalizedText;
+};
+
+export type ResourceAddMethod = OAuth2AddMethod | OAuth2AuthorizationCodeAddMethod | FormAddMethod;
 
 export type ResourceImportFile = {
   name: string;

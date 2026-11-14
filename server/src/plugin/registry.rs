@@ -1,5 +1,10 @@
 //! Orchestrates plugin capabilities: resources, model catalogs, and invocation.
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_stream::try_stream;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -14,10 +19,12 @@ use super::{
     descriptor::{
         parse_model_id, PluginDescriptor, PluginModelDescriptor, PluginProviderDescriptor,
         PluginResourceDescriptor, PluginResourceView, ProviderDefinition, ResourceActionResponse,
-        ResourceActionResult, ResourceDefinition, ResourcePresentation, OAUTH2_ADD_METHOD,
-        OAUTH2_AUTHORIZATION_CODE_ADD_METHOD,
+        ResourceActionResult, ResourceDefinition, ResourcePresentation, FORM_ADD_METHOD,
+        FORM_FIELD_URL, LIVE_CATALOG, OAUTH2_ADD_METHOD, OAUTH2_AUTHORIZATION_CODE_ADD_METHOD,
+        SNAPSHOT_CATALOG,
     },
     oauth_callback::{self, CallbackHandle, CallbackOutcome, CallbackRequest},
+    origin,
     runtime::PluginRuntime,
     state::{now_ms, PluginStateStore, ResourceDraft, ResourcePatch, ResourceRecord, StoredModel},
     wire,
@@ -33,6 +40,7 @@ use crate::{
 
 const OAUTH_SLOW_DOWN_STEP_MS: i64 = 5_000;
 const MAX_IMPORT_DRAFTS: usize = 256;
+const LIVE_CATALOG_TTL: Duration = Duration::from_secs(15);
 
 #[derive(Clone)]
 pub struct PluginRegistry {
@@ -47,6 +55,21 @@ struct RegistryInner {
     entries: RwLock<Option<Vec<PluginEntry>>>,
     workers: Mutex<HashMap<String, Arc<PluginWorker>>>,
     oauth_sessions: Mutex<HashMap<String, OAuthSession>>,
+    live_catalogs: Mutex<HashMap<LiveCatalogKey, LiveCatalogEntry>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct LiveCatalogKey {
+    plugin_id: String,
+    provider_id: String,
+    resource_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct LiveCatalogEntry {
+    models: Vec<StoredModel>,
+    fetched_at: Instant,
+    error: Option<String>,
 }
 
 struct OAuthSession {
@@ -125,6 +148,14 @@ pub struct ImportResponse {
     pub model_sync_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormSubmitResponse {
+    pub added: usize,
+    pub updated: usize,
+    pub model_sync_error: Option<String>,
+}
+
 /// 路由分支在建立 Recorder 时需要的插件模型元数据。
 #[derive(Clone, Debug)]
 pub struct PluginInvocationPlan {
@@ -144,6 +175,7 @@ impl PluginRegistry {
                 entries: RwLock::new(None),
                 workers: Mutex::new(HashMap::new()),
                 oauth_sessions: Mutex::new(HashMap::new()),
+                live_catalogs: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -184,39 +216,37 @@ impl PluginRegistry {
                 if !self.provider_configured(&entry, provider).await {
                     continue;
                 }
-                let stored = self
-                    .inner
-                    .state
-                    .models(&entry.manifest.id, &provider.id)
-                    .await
-                    .unwrap_or_default();
-                models.extend(stored.iter().filter(|model| model.enabled).map(|model| {
-                    PluginModelDescriptor::new(
-                        &entry.manifest.id,
-                        &entry.manifest.name,
-                        &entry.icon,
-                        provider,
-                        model,
-                    )
-                }));
+                models.extend(
+                    self.provider_models(&entry, &executable, provider, false)
+                        .await
+                        .into_iter()
+                        .filter(|model| model.enabled)
+                        .map(|model| {
+                            PluginModelDescriptor::new(
+                                &entry.manifest.id,
+                                &entry.manifest.name,
+                                &entry.icon,
+                                provider,
+                                &model,
+                            )
+                        }),
+                );
             }
         }
         models
     }
 
     pub async fn model_descriptor(&self, model_id: &str) -> Result<PluginModelDescriptor> {
-        let (plugin_id, provider_id, upstream_id) = parse_model_id(model_id)
+        let (plugin_id, provider_id, stored_id) = parse_model_id(model_id)
             .ok_or_else(|| Error::Provider(format!("invalid plugin model ID: {model_id}")))?;
         let executable = self.executable()?;
         let entry = self.find_entry(&executable, plugin_id).await?;
         let provider = find_provider(&entry, provider_id)?;
         let stored = self
-            .inner
-            .state
-            .models(plugin_id, provider_id)
-            .await?
+            .provider_models(&entry, &executable, provider, false)
+            .await
             .into_iter()
-            .find(|model| model.id == upstream_id)
+            .find(|model| model.id == stored_id)
             .ok_or_else(|| Error::RunNotFound(format!("plugin model {model_id}")))?;
         Ok(PluginModelDescriptor::new(
             plugin_id,
@@ -250,26 +280,48 @@ impl PluginRegistry {
             let executable = registry.executable()?;
             let entry = registry.find_entry(&executable, &plugin_id).await?;
             let provider = find_provider(&entry, &provider_id)?.clone();
-            let stored = registry.inner.state.models(&plugin_id, &provider_id).await?
+            let stored = registry
+                .provider_models(&entry, &executable, &provider, false)
+                .await
                 .into_iter()
                 .find(|model| model.id == upstream_id)
                 .ok_or_else(|| Error::RunNotFound(format!("plugin model {model_id}")))?;
             let resource = match &provider.resource_type {
+                Some(resource_type) if provider.catalog == LIVE_CATALOG => {
+                    let resource_id = live_resource_id(&upstream_id).ok_or_else(|| {
+                        Error::Provider(format!("invalid live plugin model ID: {model_id}"))
+                    })?;
+                    Some((
+                        resource_type.clone(),
+                        registry
+                            .find_record(&plugin_id, resource_type, resource_id)
+                            .await?,
+                    ))
+                }
                 Some(resource_type) => Some((
                     resource_type.clone(),
                     registry.select_resource(&plugin_id, resource_type).await?,
                 )),
                 None => None,
             };
+            let mut model_snapshot = stored.snapshot();
+            if provider.catalog == LIVE_CATALOG {
+                if let Some(upstream) = live_upstream_id(&upstream_id) {
+                    if let Some(object) = model_snapshot.as_object_mut() {
+                        object.insert("id".into(), serde_json::Value::String(upstream.to_owned()));
+                    }
+                }
+            }
             let request = wire::llm_request(&invocation)?;
             let params = serde_json::json!({
                 "providerId": provider_id,
-                "model": stored.snapshot(),
+                "model": model_snapshot,
                 "resource": resource.as_ref().map(|(resource_type, record)| record.snapshot(resource_type)),
                 "request": request,
             });
             let worker = registry.worker(&entry, &executable).await;
-            let mut items = worker.invoke_streaming("provider.invoke", params, cancellation.clone(), Some(recorder)).await?;
+            let origins = registry.resource_origins(&entry, resource.as_ref().map(|(_, record)| record));
+            let mut items = worker.invoke_streaming_with_origins("provider.invoke", params, cancellation.clone(), Some(recorder), origins).await?;
             yield ModelEvent::Start { model_call_id: invocation.call_id.clone() };
             while let Some(item) = items.recv().await {
                 match item {
@@ -288,6 +340,8 @@ impl PluginRegistry {
                                 .apply_patch(&plugin_id, resource_type, &record.id, patch).await
                             {
                                 tracing::warn!(plugin = %plugin_id, %error, "failed to apply plugin resource patch");
+                            } else {
+                                registry.invalidate_live_catalogs(&plugin_id, Some(&record.id)).await;
                             }
                         }
                         match status {
@@ -461,6 +515,88 @@ impl PluginRegistry {
             verification_url_complete,
             expires_at_ms,
             poll_interval_ms,
+        })
+    }
+
+    pub async fn form_submit(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        method_id: &str,
+        values: serde_json::Value,
+    ) -> Result<FormSubmitResponse> {
+        let executable = self.executable()?;
+        let entry = self.find_entry(&executable, plugin_id).await?;
+        let resource = find_resource(&entry, resource_type)?;
+        let method = resource
+            .add
+            .iter()
+            .find(|method| method.id == method_id)
+            .ok_or_else(|| {
+                Error::Config(format!(
+                    "plugin '{plugin_id}' does not define form method '{method_id}'"
+                ))
+            })?;
+        if method.method_type != FORM_ADD_METHOD {
+            return Err(Error::Config(format!(
+                "plugin '{plugin_id}' add method '{method_id}' is not a form method"
+            )));
+        }
+        let values = values
+            .as_object()
+            .cloned()
+            .ok_or_else(|| Error::Config("form values must be an object".into()))?;
+        let mut submitted = serde_json::Map::new();
+        let mut submit_origins = HashSet::new();
+        for field in &method.fields {
+            let raw = values
+                .get(&field.id)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if field.required && raw.is_empty() {
+                return Err(Error::Config(format!(
+                    "form field '{}' is required",
+                    field.id
+                )));
+            }
+            if field.field_type == FORM_FIELD_URL && !raw.is_empty() {
+                submit_origins.insert(origin::origin_from_url(raw)?);
+            }
+            submitted.insert(field.id.clone(), serde_json::Value::String(raw.to_owned()));
+        }
+        let value = self
+            .worker(&entry, &executable)
+            .await
+            .invoke_with_origins(
+                "form.submit",
+                serde_json::json!({
+                    "resourceType": resource_type,
+                    "methodId": method.id,
+                    "values": submitted,
+                }),
+                CancellationToken::new(),
+                submit_origins,
+            )
+            .await?;
+        let mut resources: Vec<ResourceDraft> = serde_json::from_value(value)?;
+        if resources.is_empty() {
+            return Err(Error::Protocol("form submit produced no resources".into()));
+        }
+        for draft in &mut resources {
+            let origin = origin::origin_from_private_data(&draft.private_data)?;
+            origin::rewrite_private_origin(&mut draft.private_data, origin);
+        }
+        let outcome = self
+            .persist_resources(&entry, plugin_id, resource_type, resources)
+            .await?;
+        let model_sync_error = self
+            .sync_provider_models_for_resource(&entry, &executable, resource_type)
+            .await;
+        Ok(FormSubmitResponse {
+            added: outcome.added,
+            updated: outcome.updated,
+            model_sync_error,
         })
     }
 
@@ -717,9 +853,7 @@ impl PluginRegistry {
         resources: Vec<ResourceDraft>,
     ) -> Result<OAuthPollResponse> {
         let outcome = self
-            .inner
-            .state
-            .upsert_resources(plugin_id, resource_type, resources)
+            .persist_resources(entry, plugin_id, resource_type, resources)
             .await?;
         let model_sync_error = self
             .sync_provider_models_for_resource(entry, executable, resource_type)
@@ -729,6 +863,28 @@ impl PluginRegistry {
             updated: outcome.updated,
             model_sync_error,
         })
+    }
+
+    async fn persist_resources(
+        &self,
+        entry: &PluginEntry,
+        plugin_id: &str,
+        resource_type: &str,
+        mut resources: Vec<ResourceDraft>,
+    ) -> Result<super::state::UpsertOutcome> {
+        if entry.manifest.permissions.resource_origin {
+            for draft in &mut resources {
+                let origin = origin::origin_from_private_data(&draft.private_data)?;
+                origin::rewrite_private_origin(&mut draft.private_data, origin);
+            }
+        }
+        let outcome = self
+            .inner
+            .state
+            .upsert_resources(plugin_id, resource_type, resources)
+            .await?;
+        self.invalidate_live_catalogs(plugin_id, None).await;
+        Ok(outcome)
     }
 
     pub async fn import_resources(
@@ -770,9 +926,7 @@ impl PluginRegistry {
             )));
         }
         let outcome = self
-            .inner
-            .state
-            .upsert_resources(plugin_id, resource_type, parsed.resources)
+            .persist_resources(&entry, plugin_id, resource_type, parsed.resources)
             .await?;
         let model_sync_error = self
             .sync_provider_models_for_resource(&entry, &executable, resource_type)
@@ -823,20 +977,24 @@ impl PluginRegistry {
         let value = self
             .worker(&entry, &executable)
             .await
-            .invoke(
+            .invoke_with_origins(
                 "resource.refresh",
                 serde_json::json!({
                     "resourceType": resource_type,
                     "resource": record.snapshot(resource_type),
                 }),
                 CancellationToken::new(),
+                self.resource_origins(&entry, Some(&record)),
             )
             .await?;
         let patch: ResourcePatch = serde_json::from_value(value)?;
         self.inner
             .state
             .apply_patch(plugin_id, resource_type, resource_id, patch)
-            .await
+            .await?;
+        self.invalidate_live_catalogs(plugin_id, Some(resource_id))
+            .await;
+        Ok(())
     }
 
     pub async fn resource_action(
@@ -870,7 +1028,7 @@ impl PluginRegistry {
         let value = self
             .worker(&entry, &executable)
             .await
-            .invoke(
+            .invoke_with_origins(
                 "resource.action",
                 serde_json::json!({
                     "resourceType": resource_type,
@@ -879,6 +1037,7 @@ impl PluginRegistry {
                     "input": input,
                 }),
                 CancellationToken::new(),
+                self.resource_origins(&entry, Some(&record)),
             )
             .await?;
         let result: ResourceActionResult = serde_json::from_value(value)?;
@@ -887,6 +1046,8 @@ impl PluginRegistry {
                 .state
                 .apply_patch(plugin_id, resource_type, resource_id, patch)
                 .await?;
+            self.invalidate_live_catalogs(plugin_id, Some(resource_id))
+                .await;
         }
         Ok(serde_json::to_value(ResourceActionResponse::from(result))?)
     }
@@ -908,13 +1069,14 @@ impl PluginRegistry {
             if let Err(error) = self
                 .worker(&entry, &executable)
                 .await
-                .invoke(
+                .invoke_with_origins(
                     "resource.remove",
                     serde_json::json!({
                         "resourceType": resource_type,
                         "resource": record.snapshot(resource_type),
                     }),
                     CancellationToken::new(),
+                    self.resource_origins(&entry, Some(&record)),
                 )
                 .await
             {
@@ -925,6 +1087,8 @@ impl PluginRegistry {
             .state
             .remove_resource(plugin_id, resource_type, resource_id)
             .await?;
+        self.invalidate_live_catalogs(plugin_id, Some(resource_id))
+            .await;
         Ok(())
     }
 
@@ -951,6 +1115,11 @@ impl PluginRegistry {
                 "plugin provider '{provider_id}' does not enumerate models"
             )));
         }
+        if provider.catalog == LIVE_CATALOG {
+            return Err(Error::Config(
+                "live plugin catalogs do not support per-model enablement".into(),
+            ));
+        }
         self.inner
             .state
             .set_model_enabled(plugin_id, provider_id, model_id, enabled)
@@ -961,6 +1130,7 @@ impl PluginRegistry {
         if let Some(worker) = self.inner.workers.lock().await.remove(plugin_id) {
             worker.stop().await;
         }
+        self.invalidate_live_catalogs(plugin_id, None).await;
         self.inner.state.clear(plugin_id).await
     }
 
@@ -969,11 +1139,8 @@ impl PluginRegistry {
         let mut providers = Vec::new();
         for provider in &entry.definition.providers {
             let stored = self
-                .inner
-                .state
-                .models(plugin_id, &provider.id)
-                .await
-                .unwrap_or_default();
+                .provider_models(entry, executable, provider, false)
+                .await;
             let configured = self.provider_configured(entry, provider).await;
             providers.push(PluginProviderDescriptor {
                 id: provider.id.clone(),
@@ -983,6 +1150,7 @@ impl PluginRegistry {
                 provider_type: provider.provider_type.clone(),
                 resource_type: provider.resource_type.clone(),
                 has_models: provider.has_models,
+                catalog: provider.catalog.clone(),
                 configured,
                 models: stored
                     .iter()
@@ -1045,16 +1213,21 @@ impl PluginRegistry {
             .iter()
             .map(|record| record.snapshot(&definition.resource_type))
             .collect::<Vec<_>>();
+        let origins = records
+            .iter()
+            .flat_map(|record| self.resource_origins(entry, Some(record)))
+            .collect();
         let presented = self
             .worker(entry, executable)
             .await
-            .invoke(
+            .invoke_with_origins(
                 "resource.present",
                 serde_json::json!({
                     "resourceType": definition.resource_type,
                     "resources": snapshots,
                 }),
                 CancellationToken::new(),
+                origins,
             )
             .await
             .and_then(|value| {
@@ -1088,7 +1261,19 @@ impl PluginRegistry {
         provider: &ProviderDefinition,
     ) -> bool {
         let plugin_id = &entry.manifest.id;
-        if provider.has_models {
+        if let Some(resource_type) = &provider.resource_type {
+            if self
+                .inner
+                .state
+                .resources(plugin_id, resource_type)
+                .await
+                .unwrap_or_default()
+                .is_empty()
+            {
+                return false;
+            }
+        }
+        if provider.has_models && provider.catalog == SNAPSHOT_CATALOG {
             let models = self
                 .inner
                 .state
@@ -1099,16 +1284,7 @@ impl PluginRegistry {
                 return false;
             }
         }
-        match &provider.resource_type {
-            Some(resource_type) => !self
-                .inner
-                .state
-                .resources(plugin_id, resource_type)
-                .await
-                .unwrap_or_default()
-                .is_empty(),
-            None => true,
-        }
+        true
     }
 
     /// 资源到位后刷新使用该资源类型的 Provider 模型目录;失败只报告不中断。
@@ -1145,45 +1321,249 @@ impl PluginRegistry {
                 provider.id
             )));
         }
+        if provider.catalog == LIVE_CATALOG {
+            return self
+                .refresh_live_provider_models(entry, executable, provider)
+                .await;
+        }
         let plugin_id = &entry.manifest.id;
         let resource = match &provider.resource_type {
             Some(resource_type) => {
                 let record = self.select_resource(plugin_id, resource_type).await?;
-                Some(record.snapshot(resource_type))
+                Some(record)
             }
             None => None,
         };
+        let models = self
+            .list_models(entry, executable, provider, resource.as_ref(), true)
+            .await?;
+        self.inner
+            .state
+            .replace_models(plugin_id, &provider.id, &models)
+            .await?;
+        Ok(models.len())
+    }
+
+    async fn refresh_live_provider_models(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        provider: &ProviderDefinition,
+    ) -> Result<usize> {
+        let resource_type = provider.resource_type.as_deref().ok_or_else(|| {
+            Error::Config(format!(
+                "plugin provider '{}' live catalog requires a resource type",
+                provider.id
+            ))
+        })?;
+        let plugin_id = &entry.manifest.id;
+        let records = self.inner.state.resources(plugin_id, resource_type).await?;
+        if records.is_empty() {
+            return Err(Error::Provider(format!(
+                "plugin '{plugin_id}' has no '{resource_type}' resource; add one first"
+            )));
+        }
+        let mut count = 0;
+        let mut errors = Vec::new();
+        for record in records {
+            match self
+                .live_models_for_resource(entry, executable, provider, &record, true)
+                .await
+            {
+                Ok(models) => count += models.len(),
+                Err(error) => errors.push(format!("{}: {error}", record.id)),
+            }
+        }
+        if count == 0 && !errors.is_empty() {
+            return Err(Error::Provider(errors.join("; ")));
+        }
+        Ok(count)
+    }
+
+    async fn provider_models(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        provider: &ProviderDefinition,
+        force: bool,
+    ) -> Vec<StoredModel> {
+        if !provider.has_models {
+            return Vec::new();
+        }
+        if provider.catalog == LIVE_CATALOG {
+            return self
+                .live_provider_models(entry, executable, provider, force)
+                .await;
+        }
+        self.inner
+            .state
+            .models(&entry.manifest.id, &provider.id)
+            .await
+            .unwrap_or_default()
+    }
+
+    async fn live_provider_models(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        provider: &ProviderDefinition,
+        force: bool,
+    ) -> Vec<StoredModel> {
+        let Some(resource_type) = provider.resource_type.as_deref() else {
+            return Vec::new();
+        };
+        let records = self
+            .inner
+            .state
+            .resources(&entry.manifest.id, resource_type)
+            .await
+            .unwrap_or_default();
+        let mut models = Vec::new();
+        for record in records {
+            match self
+                .live_models_for_resource(entry, executable, provider, &record, force)
+                .await
+            {
+                Ok(resource_models) => models.extend(resource_models),
+                Err(error) => {
+                    tracing::warn!(
+                        plugin = %entry.manifest.id,
+                        provider = %provider.id,
+                        resource = %record.id,
+                        %error,
+                        "live plugin catalog refresh failed"
+                    );
+                }
+            }
+        }
+        models
+    }
+
+    async fn live_models_for_resource(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        provider: &ProviderDefinition,
+        record: &ResourceRecord,
+        force: bool,
+    ) -> Result<Vec<StoredModel>> {
+        let key = LiveCatalogKey {
+            plugin_id: entry.manifest.id.clone(),
+            provider_id: provider.id.clone(),
+            resource_id: record.id.clone(),
+        };
+        if !force {
+            let catalogs = self.inner.live_catalogs.lock().await;
+            if let Some(cached) = catalogs.get(&key) {
+                if cached.fetched_at.elapsed() < LIVE_CATALOG_TTL {
+                    return match &cached.error {
+                        Some(error) if cached.models.is_empty() => {
+                            Err(Error::Provider(error.clone()))
+                        }
+                        _ => Ok(cached.models.clone()),
+                    };
+                }
+            }
+        }
+        match self
+            .list_models(entry, executable, provider, Some(record), false)
+            .await
+        {
+            Ok(models) => {
+                let stored = models
+                    .into_iter()
+                    .map(|model| bind_live_model(model, &record.id))
+                    .collect::<Vec<_>>();
+                let mut catalogs = self.inner.live_catalogs.lock().await;
+                catalogs.insert(
+                    key,
+                    LiveCatalogEntry {
+                        models: stored.clone(),
+                        fetched_at: Instant::now(),
+                        error: None,
+                    },
+                );
+                Ok(stored)
+            }
+            Err(error) => {
+                let mut catalogs = self.inner.live_catalogs.lock().await;
+                if let Some(cached) = catalogs.get_mut(&key) {
+                    cached.fetched_at = Instant::now();
+                    cached.error = Some(error.to_string());
+                    return Ok(cached.models.clone());
+                }
+                catalogs.insert(
+                    key,
+                    LiveCatalogEntry {
+                        models: Vec::new(),
+                        fetched_at: Instant::now(),
+                        error: Some(error.to_string()),
+                    },
+                );
+                Err(error)
+            }
+        }
+    }
+
+    async fn list_models(
+        &self,
+        entry: &PluginEntry,
+        executable: &Path,
+        provider: &ProviderDefinition,
+        resource: Option<&ResourceRecord>,
+        reject_empty: bool,
+    ) -> Result<Vec<StoredModel>> {
+        let snapshot = resource
+            .map(|record| record.snapshot(provider.resource_type.as_deref().unwrap_or_default()));
         let value = self
             .worker(entry, executable)
             .await
-            .invoke(
+            .invoke_with_origins(
                 "models.list",
-                serde_json::json!({ "providerId": provider.id, "resource": resource }),
+                serde_json::json!({ "providerId": provider.id, "resource": snapshot }),
                 CancellationToken::new(),
+                self.resource_origins(entry, resource),
             )
             .await?;
         let definitions = value
             .as_array()
             .ok_or_else(|| Error::Protocol("plugin models.list must return an array".into()))?;
         let mut models = Vec::with_capacity(definitions.len());
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for definition in definitions {
             let model = StoredModel::from_definition(definition)?;
             if seen.insert(model.id.clone()) {
                 models.push(model);
             }
         }
-        if models.is_empty() {
+        if reject_empty && models.is_empty() {
             return Err(Error::Provider(format!(
                 "plugin provider '{}' returned no models",
                 provider.id
             )));
         }
-        self.inner
-            .state
-            .replace_models(plugin_id, &provider.id, &models)
-            .await?;
-        Ok(models.len())
+        Ok(models)
+    }
+
+    fn resource_origins(
+        &self,
+        entry: &PluginEntry,
+        record: Option<&ResourceRecord>,
+    ) -> HashSet<String> {
+        if !entry.manifest.permissions.resource_origin {
+            return HashSet::new();
+        }
+        record
+            .and_then(|record| origin::origin_from_private_data(&record.private_data).ok())
+            .into_iter()
+            .collect()
+    }
+
+    async fn invalidate_live_catalogs(&self, plugin_id: &str, resource_id: Option<&str>) {
+        self.inner.live_catalogs.lock().await.retain(|key, _| {
+            key.plugin_id != plugin_id
+                || resource_id.is_some_and(|resource_id| key.resource_id != resource_id)
+        });
     }
 
     /// 第一版选择策略:按创建顺序取首个可用资源;冷却到期视为可用。
@@ -1371,4 +1751,44 @@ fn find_resource<'a>(
                 entry.manifest.id
             ))
         })
+}
+
+fn bind_live_model(mut model: StoredModel, resource_id: &str) -> StoredModel {
+    model.id = format!("{resource_id}/{}", model.id);
+    model
+}
+
+fn live_resource_id(stored_id: &str) -> Option<&str> {
+    stored_id
+        .split_once('/')
+        .map(|(resource_id, _)| resource_id)
+}
+
+fn live_upstream_id(stored_id: &str) -> Option<&str> {
+    stored_id.split_once('/').map(|(_, upstream)| upstream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binds_live_models_to_resource_ids() {
+        let model = bind_live_model(
+            StoredModel {
+                id: "gpt-5".into(),
+                display_name: "GPT".into(),
+                description: None,
+                max_output_tokens: None,
+                images: false,
+                enabled: true,
+                private_data: serde_json::Value::Null,
+            },
+            "resource-1",
+        );
+        assert_eq!(model.id, "resource-1/gpt-5");
+        assert_eq!(live_resource_id(&model.id), Some("resource-1"));
+        assert_eq!(live_upstream_id(&model.id), Some("gpt-5"));
+        assert_eq!(live_upstream_id("resource-1/org/gpt-5"), Some("org/gpt-5"));
+    }
 }

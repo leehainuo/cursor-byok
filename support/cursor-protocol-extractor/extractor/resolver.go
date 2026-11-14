@@ -323,6 +323,9 @@ func (resolver *TypeResolver) ResolveTypeName(ref string, contextPos int, contex
 	if looksLikeFullTypeName(trimmed) {
 		return trimmed, true
 	}
+	if typeName, ok := wellKnownTypeName(trimmed); ok && strings.Contains(trimmed, ".") {
+		return typeName, true
+	}
 
 	resolveBySymbol := func(symbol string, preferSameModule bool) (string, bool) {
 		candidates := resolver.bySymbol[symbol]
@@ -396,9 +399,29 @@ func (resolver *TypeResolver) ResolveTypeName(ref string, contextPos int, contex
 		if typeName, ok := resolveBySymbol(first, false); ok {
 			return typeName, true
 		}
+		if typeName, ok := wellKnownTypeName(last); ok {
+			return typeName, true
+		}
+	}
+
+	if typeName, ok := wellKnownTypeName(trimmed); ok {
+		return typeName, true
 	}
 
 	return "", false
+}
+
+func wellKnownTypeName(ref string) (string, bool) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "", false
+	}
+	last := trimmed
+	if idx := strings.LastIndex(trimmed, "."); idx >= 0 {
+		last = trimmed[idx+1:]
+	}
+	typeName, ok := googleWellKnownTypes[last]
+	return typeName, ok
 }
 
 // fallbackTypeToken 从无法解析的引用生成合法类型占位名。

@@ -60,13 +60,17 @@ elif [[ -d "$INPUT_ROOT" ]]; then
     "$INPUT_ROOT/Resources/app/extensions/cursor-always-local/dist/main.js"
     "$INPUT_ROOT/extensions/cursor-always-local/dist/main.js"
     "$INPUT_ROOT/cursor-always-local/dist/main.js"
+    "$INPUT_ROOT/Contents/Resources/app/extensions/cursor-agent-host/dist/agent-host-daemon/dist/bin/daemon.cjs"
+    "$INPUT_ROOT/Resources/app/extensions/cursor-agent-host/dist/agent-host-daemon/dist/bin/daemon.cjs"
+    "$INPUT_ROOT/extensions/cursor-agent-host/dist/agent-host-daemon/dist/bin/daemon.cjs"
+    "$INPUT_ROOT/cursor-agent-host/dist/agent-host-daemon/dist/bin/daemon.cjs"
   )
   for CANDIDATE in "${CANDIDATES[@]}"; do
     add_input "$CANDIDATE"
   done
   while IFS= read -r JS_FILE; do
     add_input "$JS_FILE"
-  done < <(find "$INPUT_ROOT" -type f ! -path "*/node_modules/*" \( -name "workbench.desktop.main.js" -o -name "extensionHostProcess.js" -o -path "*/extensions/*/dist/main.js" \) | sort)
+  done < <(find "$INPUT_ROOT" -type f ! -path "*/node_modules/*" \( -name "workbench.desktop.main.js" -o -name "extensionHostProcess.js" -o -name "daemon.cjs" -o -path "*/extensions/*/dist/main.js" \) | sort)
 fi
 
 if [[ -z "${INPUT_PATHS[*]-}" ]]; then

@@ -95,6 +95,73 @@ fn captured_kv_ack_hex_decodes_as_agent_client_message() {
 }
 
 #[tokio::test]
+async fn bidi_append_accepts_the_binary_and_hex_forms_from_cursor() {
+    let (_directory, store) = fixtures::temp_store().await;
+    let assets = PromptAssets::load(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("prompt/cursor")
+            .as_path(),
+    )
+    .unwrap();
+    let clients = NetworkClients::new(store.clone());
+    let registry = TransportRegistry::new(
+        store,
+        Arc::new(fake_provider::FakeProvider::default()),
+        PromptCompiler::new(assets),
+    );
+    let router = cursor::router(registry.clone(), clients).unwrap();
+    let heartbeat = pb::AgentClientMessage {
+        message: Some(pb::agent_client_message::Message::ClientHeartbeat(
+            pb::ClientHeartbeat {},
+        )),
+    }
+    .encode_to_vec();
+
+    for (request_id, data, data_binary) in [
+        ("binary", String::new(), heartbeat.clone()),
+        ("hex", hex::encode(&heartbeat), Vec::new()),
+    ] {
+        let handle = registry.get_or_create(request_id).await.unwrap();
+        let mut output = handle.subscribe();
+        let wire = ai::BidiAppendRequest {
+            request_id: Some(ai::BidiRequestId {
+                request_id: request_id.into(),
+            }),
+            append_seqno: 1,
+            data,
+            data_binary,
+        }
+        .encode_to_vec();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::post("/aiserver.v1.BidiService/BidiAppend")
+                    .header(header::CONTENT_TYPE, "application/proto")
+                    .body(Body::from(wire))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{request_id} append");
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), output.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let message: pb::AgentServerMessage = fake_cursor::decode_single(&frame).unwrap();
+        assert!(matches!(
+            message.message,
+            Some(pb::agent_server_message::Message::InteractionUpdate(
+                pb::InteractionUpdate {
+                    message: Some(pb::interaction_update::Message::Heartbeat(_)),
+                }
+            ))
+        ));
+    }
+    registry.shutdown().await;
+}
+
+#[tokio::test]
 async fn bidi_append_gzip_body_is_decompressed_before_protobuf_decode() {
     let (_directory, store) = fixtures::temp_store().await;
     let assets = PromptAssets::load(

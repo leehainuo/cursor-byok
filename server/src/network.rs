@@ -9,7 +9,8 @@ use crate::{
     Error, Result,
 };
 
-const LOCAL_NO_PROXY: &str = "localhost,127.0.0.0/8,::1";
+const LOCAL_NO_PROXY: &str =
+    "localhost,127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,fe80::/10";
 
 #[derive(Clone)]
 pub struct NetworkClients {
@@ -165,6 +166,25 @@ mod tests {
             auth_enabled: false,
             username: String::new(),
             password: String::new(),
+        }
+    }
+
+    #[test]
+    fn custom_proxy_bypass_covers_rfc1918_and_link_local() {
+        for host in [
+            "localhost",
+            "127.0.0.0/8",
+            "::1",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
+            "fe80::/10",
+        ] {
+            assert!(
+                LOCAL_NO_PROXY.split(',').any(|value| value == host),
+                "{host} missing from LOCAL_NO_PROXY"
+            );
         }
     }
 

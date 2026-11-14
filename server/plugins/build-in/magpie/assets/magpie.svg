@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="230" height="230" viewBox="0 0 230 230" xmlns="http://www.w3.org/2000/svg">
+  <title>magpie</title>
+  <rect x="22" y="21" width="187" height="187" rx="42" fill="#111827"/>
+  <path d="M64 148 L98 78 L128 78 L162 148 H138 L113 96 L88 148 Z" fill="#F8FAFC"/>
+  <path d="M118 118 H162 L148 148 H104 Z" fill="#38BDF8"/>
+</svg>
