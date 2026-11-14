@@ -187,6 +187,18 @@ impl ControlService {
             .await
     }
 
+    pub async fn plugin_form_submit(
+        &self,
+        plugin_id: &str,
+        resource_type: &str,
+        method_id: &str,
+        values: serde_json::Value,
+    ) -> Result<crate::plugin::FormSubmitResponse> {
+        self.plugins
+            .form_submit(plugin_id, resource_type, method_id, values)
+            .await
+    }
+
     pub async fn plugin_oauth_poll(
         &self,
         session_id: &str,

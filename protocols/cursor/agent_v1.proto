@@ -1893,6 +1893,8 @@ message CursorRule {
   repeated string scoped_to = 13;
   string frontmatter = 14;
   optional bool is_required = 15;
+  repeated string warnings = 16;
+  optional bool body_omitted = 17;
 }
 
 // Copied from: local:agent.v1.CursorRuleSource (var: hLt)

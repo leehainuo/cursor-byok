@@ -71,6 +71,7 @@ func extractEnums(text string, moduleStarts []int) []Enum {
 		})
 	}
 
+	enums = append(enums, extractCompactEnums(text, moduleStarts)...)
 	return enums
 }
 

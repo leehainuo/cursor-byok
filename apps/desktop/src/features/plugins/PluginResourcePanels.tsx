@@ -17,7 +17,7 @@ import { appStore } from "../../shared/store/appStore";
 import { Button } from "../../shared/ui/Button";
 import { Card } from "../../shared/ui/Card";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
-import { FormField, TextInput } from "../../shared/ui/FormControls";
+import { FormField, SecretTextInput, TextInput } from "../../shared/ui/FormControls";
 import { Modal } from "../../shared/ui/Modal";
 import { Switch } from "../../shared/ui/Switch";
 import styles from "./PluginResourcePanels.module.scss";
@@ -42,14 +42,91 @@ function ResourceAddSection({ plugin, resource, onConfigured }: {
   onConfigured: () => void;
 }) {
   return <>
-    {resource.add.map((method) => <OAuthMethodCard
-      key={method.id}
-      pluginId={plugin.id}
-      resourceType={resource.type}
-      method={method}
-      onConfigured={onConfigured}
-    />)}
+    {resource.add.map((method) => method.type === "form"
+      ? <FormMethodCard
+        key={method.id}
+        pluginId={plugin.id}
+        resourceType={resource.type}
+        method={method}
+        onConfigured={onConfigured}
+      />
+      : <OAuthMethodCard
+        key={method.id}
+        pluginId={plugin.id}
+        resourceType={resource.type}
+        method={method}
+        onConfigured={onConfigured}
+      />)}
   </>;
+}
+
+function FormMethodCard({ pluginId, resourceType, method, onConfigured }: {
+  pluginId: string;
+  resourceType: string;
+  method: PluginAddMethod;
+  onConfigured: () => void;
+}) {
+  const { locale } = useI18n();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const fields = method.fields ?? [];
+
+  const submit = async () => {
+    const next: Record<string, string> = {};
+    for (const field of fields) {
+      const value = (values[field.id] ?? "").trim();
+      if (field.required && !value) {
+        setStatus("error");
+        setError(t("请填写 {label}", { label: pluginText(field.label, locale) }));
+        return;
+      }
+      next[field.id] = value;
+    }
+    setStatus("saving");
+    setError(null);
+    try {
+      const result = await api.pluginFormSubmit(pluginId, resourceType, method.id, next);
+      await appStore.refreshPlugins();
+      if (result.modelSyncError) {
+        setStatus("error");
+        setError(t("连接已保存，但同步模型失败：{error}", { error: result.modelSyncError }));
+        return;
+      }
+      setStatus("success");
+      onConfigured();
+    } catch (cause) {
+      setStatus("error");
+      setError(errorText(cause));
+    }
+  };
+
+  return <Card className={styles.methodCard}>
+    <strong>{pluginText(method.displayName, locale)}</strong>
+    {fields.map((field) => <FormField key={field.id} label={pluginText(field.label, locale)}>
+      {field.type === "secret"
+        ? <SecretTextInput
+          autoComplete="off"
+          placeholder={pluginText(field.placeholder, locale) || undefined}
+          value={values[field.id] ?? ""}
+          onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))}
+        />
+        : <TextInput
+          type={field.type === "url" ? "url" : "text"}
+          autoComplete="off"
+          placeholder={pluginText(field.placeholder, locale) || undefined}
+          value={values[field.id] ?? ""}
+          onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))}
+        />}
+    </FormField>)}
+    <div className={styles.actions}>
+      <Button variant="primary" disabled={status === "saving"} onClick={() => void submit()}>
+        {status === "saving" ? t("正在保存连接…") : t("保存连接")}
+      </Button>
+    </div>
+    {status === "success" && <span className={styles.success}>{t("连接已保存。")}</span>}
+    {error && <span className={styles.error} role="alert">{error}</span>}
+  </Card>;
 }
 
 function OAuthMethodCard({ pluginId, resourceType, method, onConfigured }: {
@@ -263,13 +340,15 @@ function ProviderRow({ provider, busy, syncing, onManageModels, onSync }: {
       <span>
         {provider.providerType}
         {" · "}
-        {provider.models.length > 0 ? t("{count} 个模型", { count: provider.models.length }) : t("尚未同步模型")}
+        {provider.models.length > 0
+          ? t("{count} 个模型", { count: provider.models.length })
+          : provider.catalog === "live" ? t("暂无模型") : t("尚未同步模型")}
         {" · "}
         {provider.configured ? t("可调用") : t("未就绪")}
       </span>
     </div>
     {provider.hasModels && <div className={styles.actions}>
-      <Button size="small" disabled={busy || provider.models.length === 0} onClick={onManageModels}>{t("模型管理")}</Button>
+      {provider.catalog !== "live" && <Button size="small" disabled={busy || provider.models.length === 0} onClick={onManageModels}>{t("模型管理")}</Button>}
       <Button size="small" disabled={busy} onClick={onSync}>
         {syncing ? t("正在同步…") : t("同步模型")}
       </Button>
@@ -485,7 +564,7 @@ function StateBadge({ state }: { state: PluginResourceView["state"] }) {
     return <span className={styles.cooling} title={state.message ?? undefined}>{t("冷却中")}</span>;
   }
   if (state.status === "invalid") {
-    return <span className={styles.invalid} title={state.message ?? undefined}>{t("已失效")}</span>;
+    return <span className={styles.invalid} title={state.message ?? undefined}>{t("未连通")}</span>;
   }
   return <span className={styles.ready}>{t("可用")}</span>;
 }

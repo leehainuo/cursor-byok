@@ -1,0 +1,14 @@
+{
+  "apiVersion": 1,
+  "id": "dev.cursorbyok.plugins.magpie",
+  "name": "Magpie",
+  "version": "0.1.0",
+  "author": "@leookun",
+  "minAppVersion": "1.0.1",
+  "icon": "assets/magpie.svg",
+  "entry": "main.ts",
+  "permissions": {
+    "network": [],
+    "resourceOrigin": true
+  }
+}

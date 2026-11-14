@@ -21,8 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
-    "@iconify/json": "^2.2.550",
-    "@iconify/react": "^6.0.3",
+    "@iconify/json": "^2.2.553",
+    "@iconify/react": "^6.0.4",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.7.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
@@ -41,21 +41,21 @@
     "zrender": "^6.1.0"
   },
   "devDependencies": {
-    "@babel/parser": "^7.29.8",
-    "@babel/traverse": "^7.29.8",
+    "@babel/parser": "^8.1.0",
+    "@babel/traverse": "^8.1.0",
     "@tauri-apps/cli": "^2.12.4",
     "@types/babel__traverse": "^7.28.0",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-react": "^6.0.5",
     "code-inspector-plugin": "^1.6.6",
-    "concurrently": "^9.2.5",
+    "concurrently": "^10.0.6",
     "cross-env": "^10.1.0",
-    "sass": "^1.102.0",
+    "sass": "^1.107.1",
     "typescript": "^7.0.2",
-    "vite": "^8.2.4",
+    "vite": "^8.3.6",
     "wait-on": "^9.0.1"
   },
   "overrides": {
