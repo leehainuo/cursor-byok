@@ -13,7 +13,7 @@ use crate::{
         transport::TransportRegistry,
     },
     model::{
-        ModelConfigInput, ModelInvocation, ModelRequest, ModelType, ProjectedContent,
+        ModelConfigInput, ModelInvocation, ModelRequest, ModelType, ProjectedContent, Usage,
         OPENAI_CHAT_ENDPOINT,
     },
     network::NetworkClients,
@@ -55,6 +55,15 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
             delta: "{\"path\":\"a.rs\"}".into(),
         },
         ModelEvent::ToolCallEnd { index: 0 },
+        ModelEvent::Usage(Usage {
+            input_tokens: Some(80),
+            context_input_tokens: Some(120),
+            output_tokens: Some(40),
+            total_tokens: Some(160),
+            cache_read_tokens: Some(20),
+            cache_write_tokens: Some(10),
+            reasoning_tokens: Some(8),
+        }),
         ModelEvent::Done(FinishReason::ToolUse),
     ]);
     let (_router_directory, router) = router(store, provider.clone());
@@ -177,6 +186,8 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
     let mut completed_tool = None;
     let mut signature = None;
     let mut invocation_id = None;
+    let mut usage = None;
+    let mut extended_usage = None;
     loop {
         let message = next_message(&mut stream).await;
         match message.message.unwrap() {
@@ -198,6 +209,12 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
                     pb::inference_stream_response::Response::InvocationId(info) => {
                         invocation_id = Some(info.invocation_id);
                     }
+                    pb::inference_stream_response::Response::Usage(value) => {
+                        usage = Some(value);
+                    }
+                    pb::inference_stream_response::Response::ExtendedUsage(value) => {
+                        extended_usage = Some(value);
+                    }
                     _ => {}
                 }
             }
@@ -214,6 +231,17 @@ async fn client_loop_receives_ready_text_tool_call_and_completion() {
     assert_eq!(completed_tool.as_deref(), Some(tool.as_str()));
     assert_eq!(signature.as_deref(), Some("signature-1"));
     assert_eq!(invocation_id.as_deref(), Some("invoke-1"));
+    let usage = usage.expect("usage");
+    assert_eq!(usage.prompt_tokens, 120);
+    assert_eq!(usage.completion_tokens, 40);
+    assert_eq!(usage.total_tokens, Some(160));
+    let extended = extended_usage.expect("extended usage");
+    assert_eq!(extended.input_tokens, 80);
+    assert_eq!(extended.output_tokens, 40);
+    assert_eq!(extended.cache_read_tokens, 20);
+    assert_eq!(extended.cache_write_tokens, 10);
+    assert_eq!(extended.max_tokens, 128_000);
+    assert_eq!(extended.reasoning_tokens, Some(8));
     let requests = provider.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].history.len(), 1);
@@ -257,6 +285,124 @@ async fn plan_ask_and_debug_local_loops_complete_a_turn() {
     for mode in ["chat", "plan", "debug"] {
         complete_local_loop_turn(&router, &provider, &model.model_hash, mode).await;
     }
+}
+
+#[tokio::test]
+async fn client_loop_uses_run_request_selector_window_when_invoke_omits_context() {
+    let (_directory, store) = temp_store().await;
+    let provider = FakeProvider::default();
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: "invoke-1".into(),
+        },
+        ModelEvent::Usage(Usage {
+            input_tokens: Some(80),
+            context_input_tokens: Some(120),
+            output_tokens: Some(40),
+            total_tokens: Some(160),
+            cache_read_tokens: Some(20),
+            cache_write_tokens: Some(10),
+            reasoning_tokens: Some(8),
+        }),
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    let (_router_directory, router) = router(store, provider.clone());
+    let request_id = "plugin-inference-window";
+    let model_id = "plugin:dev.cursorbyok.plugins.magpie/magpie/test/grok-4.6";
+    append(
+        &router,
+        request_id,
+        0,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::RunRequest(
+                pb::RunInferenceRunRequest {
+                    conversation_id: "conversation-plugin".into(),
+                    requested_model: Some(pb::InferenceRequestedModel {
+                        model_id: model_id.into(),
+                        parameters: vec![pb::InferenceModelParameterValue {
+                            id: "context".into(),
+                            value: "1m".into(),
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post("/aiserver.v1.InferenceService/RunInferenceSSE")
+                .header(header::CONTENT_TYPE, "application/proto")
+                .body(Body::from(
+                    connect::encode_message(&agent::BidiRequestId {
+                        request_id: request_id.into(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let ready = next_message(&mut stream).await;
+    assert!(matches!(
+        ready.message,
+        Some(pb::run_inference_server_message::Message::RunReady(_))
+    ));
+
+    append(
+        &router,
+        request_id,
+        1,
+        pb::RunInferenceClientMessage {
+            message: Some(pb::run_inference_client_message::Message::InvokeModel(
+                pb::RunInferenceInvokeModel {
+                    invocation_id: "invoke-1".into(),
+                    request: Some(pb::InferenceStreamRequest {
+                        messages: vec![pb::InferenceCoreMessage {
+                            role: 1,
+                            content: Some(pb::inference_core_message::Content::Text(
+                                "Read a.rs".into(),
+                            )),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )),
+        },
+    )
+    .await;
+
+    let mut extended_usage = None;
+    loop {
+        let message = next_message(&mut stream).await;
+        match message.message.unwrap() {
+            pb::run_inference_server_message::Message::InvocationResponse(response) => {
+                if let pb::inference_stream_response::Response::ExtendedUsage(value) =
+                    response.response.unwrap().response.unwrap()
+                {
+                    extended_usage = Some(value);
+                }
+            }
+            pb::run_inference_server_message::Message::InvocationEnd(end) => {
+                assert_eq!(end.invocation_id, "invoke-1");
+                assert!(end.error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let extended = extended_usage.expect("extended usage");
+    assert_eq!(extended.max_tokens, 1_000_000);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].model.context_window_tokens, Some(1_000_000));
 }
 
 async fn append(
@@ -511,7 +657,7 @@ fn model_input() -> ModelConfigInput {
         custom_headers: serde_json::json!({}),
         anthropic_extra_params_enabled: false,
         anthropic_extra_params: serde_json::json!({}),
-        context_window_tokens: None,
+        context_window_tokens: Some(128_000),
         max_completion_tokens: None,
         anthropic_max_tokens: None,
         anthropic_thinking_effort: None,

@@ -16,7 +16,7 @@ use crate::{
         protocol::{connect, proto::inference as pb},
         transport::{OutputHub, TransportRegistry},
     },
-    model::{ModelInvocation, ModelType},
+    model::{ModelInvocation, ModelType, Usage},
     provider::{ModelEvent, Provider},
     Error, Result,
 };
@@ -40,6 +40,12 @@ pub(crate) struct Run {
     input: mpsc::Sender<pb::RunInferenceClientMessage>,
     output: Arc<OutputHub>,
     next_seqno: AsyncMutex<i64>,
+}
+
+struct LocalModel {
+    display_name: String,
+    model_type: ModelType,
+    context_window_tokens: Option<u64>,
 }
 
 impl InferenceService {
@@ -112,7 +118,11 @@ impl InferenceService {
                 request_id.into(),
                 request.conversation_id.clone(),
                 model_id.into(),
-                configured.map(|model| (model.display_name, model.model_type)),
+                configured.map(|model| LocalModel {
+                    display_name: model.display_name,
+                    model_type: model.model_type,
+                    context_window_tokens: model.context_window_tokens,
+                }),
             ));
             InferenceRoute::Local(run)
         } else {
@@ -170,17 +180,31 @@ async fn serve(
     run_id: String,
     conversation_id: String,
     model_id: String,
-    model_info: Option<(String, ModelType)>,
+    model: Option<LocalModel>,
 ) {
     let invocations = Arc::new(Mutex::new(HashMap::<String, CancellationToken>::new()));
     let mut tasks = JoinSet::new();
     let mut finished = false;
     let mut provider_call_index = 0;
+    let configured_context_window = model.as_ref().and_then(|model| model.context_window_tokens);
+    let mut run_context_window = configured_context_window;
     while let Some(message) = input.recv().await {
         use pb::run_inference_client_message::Message;
         match message.message {
             Some(Message::RunRequest(request)) => {
-                let ready = run_ready(request.requested_model, model_info.as_ref());
+                let requested_window =
+                    project::requested_context_window(request.requested_model.as_ref())
+                        .ok()
+                        .flatten();
+                run_context_window = requested_window.or(configured_context_window);
+                if run_context_window.is_none() {
+                    tracing::info!(
+                        request_id = %run_id,
+                        model_id,
+                        "inference_context_window_unknown"
+                    );
+                }
+                let ready = run_ready(request.requested_model, model.as_ref());
                 emit(
                     &output,
                     pb::run_inference_server_message::Message::RunReady(ready),
@@ -200,13 +224,14 @@ async fn serve(
                     );
                     continue;
                 }
-                let request = match project(&request, &model_id) {
+                let request = match project::project(&request, &model_id, run_context_window) {
                     Ok(request) => request,
                     Err(error) => {
                         invocation_error(&output, id, &error.to_string());
                         continue;
                     }
                 };
+                let context_window_tokens = request.model.context_window_tokens;
                 let cancellation = CancellationToken::new();
                 invocations.lock().insert(id.clone(), cancellation.clone());
                 tasks.spawn(serve_invocation(
@@ -221,6 +246,7 @@ async fn serve(
                         provider_call_index,
                         request,
                     },
+                    context_window_tokens,
                 ));
                 provider_call_index += 1;
             }
@@ -260,10 +286,10 @@ async fn serve(
 
 fn run_ready(
     requested_model: Option<pb::InferenceRequestedModel>,
-    model_info: Option<&(String, ModelType)>,
+    model: Option<&LocalModel>,
 ) -> pb::RunInferenceRunReady {
-    let (display_name, model_type) = model_info
-        .map(|(name, kind)| (name.clone(), *kind))
+    let (display_name, model_type) = model
+        .map(|model| (model.display_name.clone(), model.model_type))
         .unwrap_or_else(|| (String::new(), ModelType::OpenAi));
     let anthropic = model_type == ModelType::Anthropic;
     let name = display_name.to_ascii_lowercase();
@@ -299,6 +325,7 @@ async fn serve_invocation(
     invocations: Arc<Mutex<HashMap<String, CancellationToken>>>,
     cancellation: CancellationToken,
     invocation: ModelInvocation,
+    context_window_tokens: Option<u64>,
 ) {
     let id = invocation.call_id.clone();
     let mut stream = provider.stream(invocation, cancellation);
@@ -307,7 +334,7 @@ async fn serve_invocation(
     while let Some(next) = stream.next().await {
         match next {
             Ok(event) => {
-                if let Some(response) = model_response(event, &mut tool_calls) {
+                for response in model_responses(event, &mut tool_calls, context_window_tokens) {
                     emit(
                         &output,
                         pb::run_inference_server_message::Message::InvocationResponse(
@@ -341,12 +368,16 @@ async fn serve_invocation(
     );
 }
 
-fn model_response(
+fn model_responses(
     event: ModelEvent,
     tool_calls: &mut HashMap<usize, (String, String, String)>,
-) -> Option<pb::InferenceStreamResponse> {
+    context_window_tokens: Option<u64>,
+) -> Vec<pb::InferenceStreamResponse> {
     use pb::inference_stream_response::Response;
     let response = match event {
+        ModelEvent::Usage(usage) => {
+            return usage_responses(usage, context_window_tokens);
+        }
         ModelEvent::TextDelta(text) => Response::TextPart(pb::InferenceTextStreamPart {
             text,
             is_final: false,
@@ -399,7 +430,9 @@ fn model_response(
             })
         }
         ModelEvent::ToolCallArgumentsDelta { index, delta } => {
-            let (call_id, _, arguments) = tool_calls.get_mut(&index)?;
+            let Some((call_id, _, arguments)) = tool_calls.get_mut(&index) else {
+                return Vec::new();
+            };
             arguments.push_str(&delta);
             Response::ToolCallPart(pb::InferenceToolCallStreamPart {
                 tool_call_id: call_id.clone(),
@@ -411,7 +444,9 @@ fn model_response(
             })
         }
         ModelEvent::ToolCallEnd { index } => {
-            let (call_id, name, arguments) = tool_calls.remove(&index)?;
+            let Some((call_id, name, arguments)) = tool_calls.remove(&index) else {
+                return Vec::new();
+            };
             Response::ToolCallPart(pb::InferenceToolCallStreamPart {
                 tool_call_id: call_id,
                 tool_name: name,
@@ -421,13 +456,6 @@ fn model_response(
                 ..Default::default()
             })
         }
-        ModelEvent::Usage(usage) => Response::ExtendedUsage(pb::InferenceExtendedUsageInfo {
-            input_tokens: count(usage.input_tokens),
-            output_tokens: count(usage.output_tokens),
-            cache_read_tokens: count(usage.cache_read_tokens),
-            cache_write_tokens: count(usage.cache_write_tokens),
-            ..Default::default()
-        }),
         ModelEvent::Start { model_call_id } => {
             Response::InvocationId(pb::InferenceInvocationIdInfo {
                 invocation_id: model_call_id,
@@ -436,12 +464,53 @@ fn model_response(
         ModelEvent::TextStart
         | ModelEvent::ThinkingStart
         | ModelEvent::ProviderReplayState(_)
-        | ModelEvent::Done(_) => return None,
+        | ModelEvent::Done(_) => return Vec::new(),
     };
-    Some(pb::InferenceStreamResponse {
+    vec![pb::InferenceStreamResponse {
         response: Some(response),
         ..Default::default()
-    })
+    }]
+}
+
+fn usage_responses(
+    usage: Usage,
+    context_window_tokens: Option<u64>,
+) -> Vec<pb::InferenceStreamResponse> {
+    use pb::inference_stream_response::Response;
+    let prompt_tokens = usage.context_input_tokens.or(usage.input_tokens);
+    let completion_tokens = usage.output_tokens;
+    let total_tokens = usage
+        .total_tokens
+        .or_else(|| match (prompt_tokens, completion_tokens) {
+            (Some(prompt), Some(completion)) => Some(prompt.saturating_add(completion)),
+            (Some(prompt), None) => Some(prompt),
+            (None, Some(completion)) => Some(completion),
+            (None, None) => None,
+        });
+    vec![
+        stream_response(Response::Usage(pb::InferenceUsageInfo {
+            prompt_tokens: count(prompt_tokens),
+            completion_tokens: count(completion_tokens),
+            total_tokens: total_tokens.map(count_value),
+        })),
+        stream_response(Response::ExtendedUsage(pb::InferenceExtendedUsageInfo {
+            input_tokens: count(usage.input_tokens),
+            output_tokens: count(usage.output_tokens),
+            cache_read_tokens: count(usage.cache_read_tokens),
+            cache_write_tokens: count(usage.cache_write_tokens),
+            max_tokens: count(context_window_tokens),
+            reasoning_tokens: usage.reasoning_tokens.map(count_value),
+        })),
+    ]
+}
+
+fn stream_response(
+    response: pb::inference_stream_response::Response,
+) -> pb::InferenceStreamResponse {
+    pb::InferenceStreamResponse {
+        response: Some(response),
+        ..Default::default()
+    }
 }
 
 fn agent_mode_configs() -> Vec<pb::RunInferenceAgentModeConfig> {
@@ -462,7 +531,11 @@ fn agent_mode_configs() -> Vec<pb::RunInferenceAgentModeConfig> {
 }
 
 fn count(value: Option<u64>) -> i32 {
-    value.unwrap_or_default().min(i32::MAX as u64) as i32
+    count_value(value.unwrap_or_default())
+}
+
+fn count_value(value: u64) -> i32 {
+    value.min(i32::MAX as u64) as i32
 }
 
 fn invocation_error(output: &OutputHub, id: String, message: &str) {
