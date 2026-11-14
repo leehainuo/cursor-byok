@@ -4,14 +4,16 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::{
-    cursor::prompting::{Mode, PromptCompiler},
     cursor::{
-        checkpoint::messages,
-        checkpoint::CheckpointBuilder,
+        checkpoint::{messages, CheckpointBuilder},
+        prompting::{append_subagent_models, Mode, PromptCompiler},
         protocol::proto::agent::v1 as pb,
         services::blob_sync::BlobSynchronizer,
         services::context_sync::RequestContextSynchronizer,
-        tools::runtime::{ExecContext, SubagentModel},
+        tools::{
+            runtime::{ExecContext, SubagentModel},
+            subagent_models::ByokModel,
+        },
     },
     model::{
         CanonicalMessage, ContentPart, ConversationId, MessageContent, Origin, PreparedRun,
@@ -150,6 +152,16 @@ pub(crate) async fn prepare(
         .is_some_and(|(_, selection)| {
             matches!(selection, crate::model::SubagentModelOverride::Disabled)
         });
+    let byok_models = store
+        .models()
+        .await?
+        .into_iter()
+        .map(|model| ByokModel {
+            hash: model.model_hash,
+            model_id: model.model_id,
+            display_name: model.display_name,
+        })
+        .collect::<Vec<_>>();
     let mut checkpoint_prompt = compiler.prompt_spec(
         checkpoint_mode,
         &model,
@@ -161,6 +173,8 @@ pub(crate) async fn prepare(
     )?;
     if subagents_disabled {
         checkpoint_prompt.tools.retain(|tool| tool.name != "Task");
+    } else {
+        append_subagent_models(&mut checkpoint_prompt, &byok_models);
     }
     let prompt = if compacting {
         compiler.prompt_spec(Mode::Compaction, &model, &[], false)?
@@ -327,6 +341,7 @@ pub(crate) async fn prepare(
         &model.model_id,
         subagents_disabled,
         &subagent_model_overrides,
+        byok_models,
     );
     Ok((
         PreparedRun {
@@ -585,6 +600,7 @@ fn exec_context(
         crate::model::SubagentKind,
         crate::model::SubagentModelOverride,
     )],
+    byok_models: Vec<ByokModel>,
 ) -> ExecContext {
     let subagent_model = overrides.first().map(|(_, value)| match value {
         crate::model::SubagentModelOverride::Explicit(model) => {
@@ -601,6 +617,7 @@ fn exec_context(
             .unwrap_or_else(|| conversation_id.to_string()),
         default_subagent_model: model_id.into(),
         subagent_model,
+        byok_models,
         allow_subagents: request.subagent_type_name.is_none() && !subagents_disabled,
         subagents_disabled,
         terminals_folder: request_context

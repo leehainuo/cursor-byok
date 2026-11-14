@@ -11,7 +11,10 @@ use tokio::sync::Mutex;
 
 use crate::{cursor::protocol::proto::agent::v1 as pb, model::ToolCall, Error, Result};
 
-use super::edit::EditWrite;
+use super::{
+    edit::EditWrite,
+    subagent_models::{self, ByokModel},
+};
 
 #[derive(Clone, Default)]
 pub struct CursorToolRuntime {
@@ -44,6 +47,7 @@ pub struct ExecContext {
     pub root_conversation_id: String,
     pub default_subagent_model: String,
     pub subagent_model: Option<SubagentModel>,
+    pub byok_models: Vec<ByokModel>,
     pub allow_subagents: bool,
     pub subagents_disabled: bool,
     pub terminals_folder: String,
@@ -88,15 +92,20 @@ impl ExecContext {
         if self.task_disabled(call) {
             return Ok(call.clone());
         }
-        let model = match &self.subagent_model {
-            Some(SubagentModel::Model(model)) => model.clone(),
-            Some(SubagentModel::Disabled) => unreachable!("disabled Task returned above"),
-            None => arguments
-                .get("model")
-                .and_then(serde_json::Value::as_str)
-                .filter(|model| *model != "inherit")
-                .unwrap_or(&self.default_subagent_model)
-                .to_string(),
+        let explicit = arguments
+            .get("model")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|model| !model.is_empty() && *model != "inherit");
+        let model = match (explicit, &self.subagent_model) {
+            (Some(requested), _) => {
+                subagent_models::resolve(&self.byok_models, requested)?.to_string()
+            }
+            (None, Some(SubagentModel::Model(model))) => model.clone(),
+            (None, Some(SubagentModel::Disabled)) => {
+                unreachable!("disabled Task returned above")
+            }
+            (None, None) => self.default_subagent_model.clone(),
         };
         if model.is_empty() {
             return Err(Error::Protocol(format!(
@@ -364,4 +373,93 @@ pub(crate) fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(arguments: serde_json::Value) -> ToolCall {
+        ToolCall {
+            index: 0,
+            call_id: "call-1".into(),
+            model_call_id: "model-call-1".into(),
+            name: "Task".into(),
+            arguments_text: arguments.to_string(),
+            arguments,
+            argument_error: None,
+        }
+    }
+
+    fn context(subagent_model: Option<SubagentModel>) -> ExecContext {
+        ExecContext {
+            default_subagent_model: "parent-hash".into(),
+            subagent_model,
+            byok_models: vec![ByokModel {
+                hash: "aaaa".into(),
+                model_id: "gpt-x".into(),
+                display_name: "My Model (TT Switch)".into(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn prepared_model(context: &ExecContext, arguments: serde_json::Value) -> String {
+        context.prepare_call(&task(arguments)).unwrap().arguments["model"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn explicit_byok_model_overrides_cursor_setting() {
+        let context = context(Some(SubagentModel::Model("grok-x".into())));
+        for requested in [
+            "aaaa",
+            "gpt-x",
+            "My Model (TT Switch)",
+            "my-model",
+            "MY MODEL",
+        ] {
+            assert_eq!(
+                prepared_model(&context, serde_json::json!({ "model": requested })),
+                "aaaa",
+                "{requested}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_or_inherit_model_falls_back_to_setting_then_parent() {
+        let with_setting = context(Some(SubagentModel::Model("grok-x".into())));
+        let without_setting = context(None);
+        for arguments in [
+            serde_json::json!({}),
+            serde_json::json!({ "model": "inherit" }),
+            serde_json::json!({ "model": "" }),
+        ] {
+            assert_eq!(prepared_model(&with_setting, arguments.clone()), "grok-x");
+            assert_eq!(prepared_model(&without_setting, arguments), "parent-hash");
+        }
+    }
+
+    #[test]
+    fn unknown_explicit_model_passes_through() {
+        let context = context(Some(SubagentModel::Model("grok-x".into())));
+        assert_eq!(
+            prepared_model(
+                &context,
+                serde_json::json!({ "model": "composer-2.5-fast" })
+            ),
+            "composer-2.5-fast"
+        );
+    }
+
+    #[test]
+    fn disabled_setting_keeps_task_unchanged() {
+        let context = context(Some(SubagentModel::Disabled));
+        let call = task(serde_json::json!({ "model": "aaaa" }));
+        assert!(context.task_disabled(&call));
+        assert_eq!(context.prepare_call(&call).unwrap(), call);
+    }
 }

@@ -193,7 +193,12 @@ impl ConversationRuntime {
                         }
                     }
                     TransportCommand::Append { seqno, message } => {
-                        for (_seqno, message) in inbox.push(seqno, *message) {
+                        for (seqno, mut message) in inbox.push(seqno, *message) {
+                            super::input::assign_message_id(
+                                &mut message,
+                                handle.request_id(),
+                                seqno,
+                            );
                             {
                                 match message.message {
                                     Some(pb::agent_client_message::Message::RunRequest(
