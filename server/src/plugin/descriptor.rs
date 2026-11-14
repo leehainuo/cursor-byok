@@ -26,6 +26,12 @@ pub struct ProviderDefinition {
     #[serde(default)]
     pub resource_type: Option<String>,
     pub has_models: bool,
+    #[serde(default = "default_catalog_mode")]
+    pub catalog: String,
+}
+
+fn default_catalog_mode() -> String {
+    SNAPSHOT_CATALOG.to_owned()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,6 +74,21 @@ pub struct AddMethodDefinition {
     pub description: LocalizedText,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback: Option<OAuthCallbackDefinition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FormFieldDefinition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FormFieldDefinition {
+    pub id: String,
+    pub label: LocalizedText,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub placeholder: LocalizedText,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -91,6 +112,12 @@ pub struct ImportDefinition {
 
 pub const OAUTH2_ADD_METHOD: &str = "oauth2.0";
 pub const OAUTH2_AUTHORIZATION_CODE_ADD_METHOD: &str = "oauth2.authorization-code";
+pub const FORM_ADD_METHOD: &str = "form";
+pub const SNAPSHOT_CATALOG: &str = "snapshot";
+pub const LIVE_CATALOG: &str = "live";
+pub const FORM_FIELD_URL: &str = "url";
+pub const FORM_FIELD_SECRET: &str = "secret";
+pub const FORM_FIELD_TEXT: &str = "text";
 
 /// 桌面端看到的插件全貌。
 #[derive(Clone, Debug, Serialize)]
@@ -115,7 +142,9 @@ pub struct PluginProviderDescriptor {
     pub provider_type: String,
     pub resource_type: Option<String>,
     pub has_models: bool,
-    /// 已满足调用条件:模型目录非空,且需要资源时至少有一条资源。
+    /// snapshot 落盘目录;live 按资源短缓存,不落盘。
+    pub catalog: String,
+    /// 已满足调用条件:snapshot 需目录非空;live 有资源即可。
     pub configured: bool,
     pub models: Vec<PluginModelDescriptor>,
 }
@@ -311,5 +340,9 @@ mod tests {
         );
         assert_eq!(parse_model_id("plugin:only/one"), None);
         assert_eq!(parse_model_id("model-hash"), None);
+        assert_eq!(
+            parse_model_id("plugin:dev.example/gateway/resource-id/gpt-5"),
+            Some(("dev.example", "gateway", "resource-id/gpt-5"))
+        );
     }
 }

@@ -32,6 +32,9 @@ pub struct PluginManifest {
 pub struct PluginPermissions {
     #[serde(default)]
     pub network: Vec<String>,
+    /// 为 true 时,本次调用可访问绑定资源的 origin(允许 HTTP / LAN)。
+    #[serde(default)]
+    pub resource_origin: bool,
 }
 
 impl PluginManifest {
@@ -199,6 +202,21 @@ mod tests {
         assert!(validate_network_host("https://example.com").is_err());
         assert!(validate_network_host("example.com:443").is_err());
         assert!(validate_network_host("example.com").is_ok());
+    }
+
+    #[test]
+    fn resource_origin_defaults_to_false() {
+        let permissions: PluginPermissions = serde_json::from_value(serde_json::json!({
+            "network": ["example.com"]
+        }))
+        .unwrap();
+        assert!(!permissions.resource_origin);
+        let permissions: PluginPermissions = serde_json::from_value(serde_json::json!({
+            "network": [],
+            "resourceOrigin": true
+        }))
+        .unwrap();
+        assert!(permissions.resource_origin);
     }
 
     #[test]

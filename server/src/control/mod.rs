@@ -161,6 +161,10 @@ pub fn api_router(service: ControlService) -> Router {
             post(plugins::oauth_begin),
         )
         .route(
+            "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/form/{method_id}",
+            post(plugins::form_submit),
+        )
+        .route(
             "/__byok-api__/api/plugins/{plugin_id}/resources/{resource_type}/import",
             post(plugins::import),
         )

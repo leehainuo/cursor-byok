@@ -31,7 +31,8 @@ export type NetworkEventStream = {
 };
 
 /**
- * 每次能力调用收到的宿主服务。网络请求仅限 plugin.json 声明的 HTTPS 主机;
+ * 每次能力调用收到的宿主服务。网络请求默认仅限 plugin.json 声明的 HTTPS 主机;
+ * `permissions.resourceOrigin` 为 true 时,本次调用还可访问绑定资源的 origin(可 HTTP)。
  * 宿主取消本次调用时通过 `signal` 中止。
  */
 export type PluginContext = {
@@ -75,6 +76,7 @@ export function __descriptor(definition: ProviderPluginDefinition) {
       providerType: provider.providerType,
       resourceType: provider.resourceType ?? null,
       hasModels: provider.models !== undefined,
+      catalog: provider.models?.catalog ?? "snapshot",
     })),
     resources: (definition.resources ?? []).map((resource) => ({
       type: resource.type,
@@ -83,13 +85,22 @@ export function __descriptor(definition: ProviderPluginDefinition) {
         type: method.type,
         id: method.id,
         displayName: method.displayName,
-        description: method.description ?? null,
+        description: method.type === "form" ? null : method.description ?? null,
         callback: method.type === "oauth2.authorization-code"
           ? {
             port: method.callback?.port ?? null,
             path: method.callback?.path ?? "/oauth-callback",
           }
           : null,
+        fields: method.type === "form"
+          ? method.fields.map((field) => ({
+            id: field.id,
+            label: field.label,
+            type: field.type,
+            required: field.required ?? false,
+            placeholder: field.placeholder ?? null,
+          }))
+          : [],
       })),
       import: resource.import
         ? {

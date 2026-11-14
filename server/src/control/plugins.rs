@@ -7,8 +7,8 @@ use axum::{
 
 use crate::{
     plugin::{
-        ImportResponse, OAuthBeginResponse, OAuthPollResponse, PluginDescriptor,
-        PluginRuntimeStatus,
+        FormSubmitResponse, ImportResponse, OAuthBeginResponse, OAuthPollResponse,
+        PluginDescriptor, PluginRuntimeStatus,
     },
     Result,
 };
@@ -34,6 +34,19 @@ pub async fn oauth_begin(
     Ok(Json(
         service
             .plugin_oauth_begin(&plugin_id, &resource_type, &method_id)
+            .await?,
+    ))
+}
+
+pub async fn form_submit(
+    State(service): State<ControlService>,
+    Path((plugin_id, resource_type, method_id)): Path<(String, String, String)>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<FormSubmitResponse>> {
+    let values = body.get("values").cloned().unwrap_or(body);
+    Ok(Json(
+        service
+            .plugin_form_submit(&plugin_id, &resource_type, &method_id, values)
             .await?,
     ))
 }
