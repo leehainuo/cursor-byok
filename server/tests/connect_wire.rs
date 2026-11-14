@@ -205,3 +205,185 @@ async fn bidi_append_gzip_body_is_decompressed_before_protobuf_decode() {
     assert!(text.contains("BidiAppend contains no AgentClientMessage"));
     assert!(!text.contains("protobuf decode error"));
 }
+
+#[tokio::test]
+async fn binary_first_append_routes_a_run_and_streams_protobuf_until_completion() {
+    use cursor_server::provider::{FinishReason, ModelEvent};
+    use futures_util::StreamExt;
+
+    let (_directory, store) = fixtures::temp_store().await;
+    let provider = fake_provider::FakeProvider::default();
+    provider.push(vec![
+        ModelEvent::Start {
+            model_call_id: "binary-call".into(),
+        },
+        ModelEvent::TextStart,
+        ModelEvent::TextDelta("binary chat works".into()),
+        ModelEvent::TextEnd,
+        ModelEvent::Done(FinishReason::Stop),
+    ]);
+    let assets =
+        PromptAssets::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("prompt/cursor"))
+            .unwrap();
+    let clients = NetworkClients::new(store.clone());
+    let registry = TransportRegistry::new(
+        store,
+        Arc::new(provider.clone()),
+        PromptCompiler::new(assets),
+    );
+    let router = cursor::router(registry.clone(), clients).unwrap();
+    let request_id = "binary-first-append";
+    let message = pb::AgentClientMessage {
+        message: Some(pb::agent_client_message::Message::RunRequest(
+            pb::AgentRunRequest {
+                conversation_id: Some("binary-conversation".into()),
+                run_id: Some(request_id.into()),
+                requested_model: Some(pb::RequestedModel {
+                    model_id: "plugin:test/provider/model".into(),
+                    ..Default::default()
+                }),
+                action: Some(pb::ConversationAction {
+                    action: Some(pb::conversation_action::Action::UserMessageAction(
+                        pb::UserMessageAction {
+                            user_message: Some(pb::UserMessage {
+                                text: "Hello".into(),
+                                message_id: "binary-user".into(),
+                                mode: pb::AgentMode::Agent as i32,
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    )),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )),
+    };
+    binary_append(&router, request_id, 0, message).await;
+    assert!(registry.local(request_id).await.is_some());
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post("/agent.v1.AgentService/RunSSE")
+                .header(header::CONTENT_TYPE, "application/proto")
+                .body(Body::from(
+                    connect::encode_message(&pb::BidiRequestId {
+                        request_id: request_id.into(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let mut seqno = 1;
+    let mut text = String::new();
+    loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), stream.next())
+            .await
+            .expect("RunSSE response timed out")
+            .expect("RunSSE ended before completion")
+            .unwrap();
+        for (flags, payload) in connect::decode_frames(&frame).unwrap() {
+            if flags & connect::END_STREAM_FLAG != 0 {
+                let end: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+                assert!(end.get("error").is_none(), "{end}");
+                assert_eq!(text, "binary chat works");
+                assert_eq!(provider.requests().len(), 1);
+                registry.shutdown().await;
+                return;
+            }
+            let message = pb::AgentServerMessage::decode(payload).unwrap();
+            match message.message {
+                Some(pb::agent_server_message::Message::KvServerMessage(kv)) => {
+                    binary_append(
+                        &router,
+                        request_id,
+                        seqno,
+                        pb::AgentClientMessage {
+                            message: Some(pb::agent_client_message::Message::KvClientMessage(
+                                pb::KvClientMessage {
+                                    id: kv.id,
+                                    message: Some(pb::kv_client_message::Message::SetBlobResult(
+                                        pb::SetBlobResult { error: None },
+                                    )),
+                                },
+                            )),
+                        },
+                    )
+                    .await;
+                    seqno += 1;
+                }
+                Some(pb::agent_server_message::Message::InteractionUpdate(update)) => {
+                    if let Some(pb::interaction_update::Message::TextDelta(delta)) = update.message
+                    {
+                        text.push_str(&delta.text);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+async fn binary_append(
+    router: &axum::Router,
+    request_id: &str,
+    seqno: i64,
+    message: pb::AgentClientMessage,
+) {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post("/aiserver.v1.BidiService/BidiAppend")
+                .header(header::CONTENT_TYPE, "application/proto")
+                .body(Body::from(
+                    ai::BidiAppendRequest {
+                        request_id: Some(ai::BidiRequestId {
+                            request_id: request_id.into(),
+                        }),
+                        append_seqno: seqno,
+                        data_binary: message.encode_to_vec(),
+                        ..Default::default()
+                    }
+                    .encode_to_vec(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+}
+
+#[test]
+fn bidi_append_rejects_missing_ambiguous_and_invalid_payloads() {
+    let request = ai::BidiAppendRequest {
+        request_id: Some(ai::BidiRequestId {
+            request_id: "invalid-append".into(),
+        }),
+        ..Default::default()
+    };
+    assert!(cursor::bidi::decode(&request).is_err());
+    let heartbeat = pb::AgentClientMessage {
+        message: Some(pb::agent_client_message::Message::ClientHeartbeat(
+            pb::ClientHeartbeat {},
+        )),
+    }
+    .encode_to_vec();
+    assert!(cursor::bidi::decode(&ai::BidiAppendRequest {
+        data: hex::encode(&heartbeat),
+        data_binary: heartbeat,
+        ..request.clone()
+    })
+    .is_err());
+    assert!(cursor::bidi::decode(&ai::BidiAppendRequest {
+        data_binary: vec![0xff],
+        ..request
+    })
+    .is_err());
+}
