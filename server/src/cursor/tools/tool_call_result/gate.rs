@@ -1,7 +1,10 @@
 //! Correlates Tool completion events and gates final result delivery.
 use std::collections::BTreeMap;
 
-use crate::{cursor::protocol::proto::agent::v1 as pb, model::limit_tool_result_text};
+use crate::{
+    cursor::protocol::{json::prost_struct, proto::agent::v1 as pb},
+    model::limit_tool_result_text,
+};
 
 const KIB: usize = 1024;
 const READ_CONTENT_LIMIT: usize = 64 * KIB;
@@ -450,16 +453,7 @@ fn is_mcp_notice(item: &pb::McpToolResultContentItem) -> bool {
 fn structured_json_len(value: &Option<prost_types::Struct>) -> usize {
     value
         .as_ref()
-        .and_then(|value| {
-            serde_json::to_vec(&serde_json::Value::Object(
-                value
-                    .fields
-                    .iter()
-                    .map(|(key, value)| (key.clone(), super::prost_json(value)))
-                    .collect(),
-            ))
-            .ok()
-        })
+        .and_then(|value| serde_json::to_vec(&prost_struct(value)).ok())
         .map_or(0, |value| value.len())
 }
 
