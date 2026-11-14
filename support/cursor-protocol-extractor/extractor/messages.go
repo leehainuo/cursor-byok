@@ -167,6 +167,7 @@ func extractMessages(text string, moduleStarts []int) []Message {
 		})
 	}
 
+	messages = append(messages, extractCompactMessages(text, moduleStarts)...)
 	return messages
 }
 

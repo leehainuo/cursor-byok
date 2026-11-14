@@ -116,6 +116,19 @@ func TestModernFactorySyntaxExtractsInAppAdServiceTypes(t *testing.T) {
 	}
 }
 
+// TestResolverMapsDottedGoogleWellKnownTypes 验证 r.Empty / r.Value 解析为 google.protobuf 标准类型。
+func TestResolverMapsDottedGoogleWellKnownTypes(t *testing.T) {
+	resolver := newTypeResolver(nil, nil, nil, nil)
+	typeName, ok := resolver.ResolveTypeName("r.Empty", 0, 0, "aiserver.v1", "message")
+	if !ok || typeName != "google.protobuf.Empty" {
+		t.Fatalf("resolved r.Empty to %q (ok=%v)", typeName, ok)
+	}
+	typeName, ok = resolver.ResolveTypeName("r.Value", 0, 0, "aiserver.v1", "message")
+	if !ok || typeName != "google.protobuf.Value" {
+		t.Fatalf("resolved r.Value to %q (ok=%v)", typeName, ok)
+	}
+}
+
 // TestAssignmentAliasResolvesStandardProtobufType 验证赋值别名解析标准协议类型。
 func TestAssignmentAliasResolvesStandardProtobufType(t *testing.T) {
 	const bundle = `
@@ -183,10 +196,328 @@ func TestMergeMessagesPrefersPrimaryBundleAndKeepsSupplementalTypes(t *testing.T
 	if len(merged) != 2 {
 		t.Fatalf("merged %d messages, want 2", len(merged))
 	}
-	if merged[0].Fields[0].Name != "primary" {
-		t.Fatalf("duplicate type did not preserve primary definition: %#v", merged[0])
+	if len(merged[0].Fields) != 1 {
+		t.Fatalf("duplicate type lost a definition: %#v", merged[0])
 	}
 	if merged[1].TypeName != "aiserver.v1.LegacyOnly" {
 		t.Fatalf("supplemental-only type missing: %#v", merged)
 	}
+}
+
+// TestMergeMessagesPrefersQualifiedTypeReferences 验证合并保留已解析的全限定字段类型。
+func TestMergeMessagesPrefersQualifiedTypeReferences(t *testing.T) {
+	unresolved := Message{
+		TypeName: "aiserver.v1.BuiltinToolResult",
+		Fields: []Field{
+			{No: 5, Name: "edit_result", Kind: "message", T: "uR", Oneof: "result"},
+		},
+	}
+	qualified := Message{
+		TypeName: "aiserver.v1.BuiltinToolResult",
+		Fields: []Field{
+			{No: 5, Name: "edit_result", Kind: "message", T: "aiserver.v1.EditResult", Oneof: "result"},
+		},
+	}
+	merged := mergeMessagesByTypeName([]Message{unresolved, qualified})
+	if merged[0].Fields[0].T != "aiserver.v1.EditResult" {
+		t.Fatalf("merge kept unresolved type: %#v", merged[0].Fields[0])
+	}
+}
+
+// TestMergeMessagesPrefersMoreCompleteDefinition 验证合并保留字段更完整的声明。
+func TestMergeMessagesPrefersMoreCompleteDefinition(t *testing.T) {
+	subset := Message{
+		TypeName: "aiserver.v1.RunInferencePromptModelMetadata",
+		Fields:   []Field{{No: 1, Name: "vendor", Kind: "scalar", T: 9}},
+	}
+	complete := Message{
+		TypeName: "aiserver.v1.RunInferencePromptModelMetadata",
+		Fields: []Field{
+			{No: 1, Name: "vendor", Kind: "scalar", T: 9},
+			{No: 46, Name: "agent_mode_configs", Kind: "message", T: "aiserver.v1.RunInferenceAgentModeConfig", Repeated: true},
+			{No: 48, Name: "ask_question_config", Kind: "message", T: "aiserver.v1.RunInferenceAskQuestionConfig", Opt: true},
+		},
+	}
+
+	merged := mergeMessagesByTypeName([]Message{subset, complete})
+	if len(merged) != 1 || len(merged[0].Fields) != 3 {
+		t.Fatalf("merge did not keep the complete definition: %#v", merged)
+	}
+}
+
+// TestCompactFactoryExtractsRunInferenceModeConfig 验证 compact $() / enumType 提取 per-mode tool decisions。
+func TestCompactFactoryExtractsRunInferenceModeConfig(t *testing.T) {
+	const bundle = `
+D6t="aiserver.v1.";
+class F6t extends Base{static $p(){return D6t}}
+K6t=(0,s.QT)(r.proto3,D6t,"InferenceMessageRole",[[0,"UNSPECIFIED"],[1,"USER"],[2,"ASSISTANT"],[3,"TOOL"],[4,"SYSTEM"]],1);
+class z7t extends F6t{
+  static $(){return["RunInferenceClientMessage|1 run_request #0 message|4 finish_run #1 message",Qp1,lf1]}
+}
+class vf1 extends F6t{
+  static $(){return["RunInferencePromptModelMetadata|1 vendor 9|36 feature_flags 9,#0|46 agent_mode_configs #1*|48 ask_question_config #2?",Tf1,Cf1,wf1]}
+}
+class Cf1 extends F6t{
+  static $(){return["RunInferenceAgentModeConfig|1 mode_id 9|2 enable_ask_question_tool 8|3 switch_mode_tool_config #0?",kf1]}
+}
+class wf1 extends F6t{
+  static $(){return["RunInferenceAskQuestionConfig|1 tool_name 9|2 auto_reject_first 8"]}
+}
+class Tf1 extends F6t{
+  static $(){return["RunInferenceFlagValue|1 bool_value 8 value|2 number_value 1 value|3 string_value 9 value"]}
+}
+class kf1 extends F6t{
+  static $(){return["RunInferenceSwitchModeToolConfig|1 target_modes 9*"]}
+}
+class Lp1 extends F6t{
+  static $(){return["InferenceToolResultPart|1 tool_call_id 9|3 result #0",r.Value]}
+}
+class hf1 extends F6t{
+  static $(){return["RunInferenceRunReady|12 metric_labels 9,9|4 prompt_model_metadata #0",vf1]}
+}
+InferenceReason=enumType(proto3,__protoPackage117,"InferenceReason",[[0,"UNSPECIFIED"],[1,"GEMINI_VIDEO_SUBAGENT"]],1);
+__protoPackage117="aiserver.v1.";
+var Pf1={typeName:"aiserver.v1.InferenceService",methods:{runInference:{name:"RunInference",I:z7t,O:hf1,kind:ye.BiDiStreaming},runInferenceSSE:{name:"RunInferenceSSE",I:j$e,O:hf1,kind:ye.ServerStreaming},recordEmpty:{name:"RecordEmpty",I:z7t,O:r.Empty,kind:ye.Unary}}};
+`
+	messages, enums, services := extractResolvedBundle(bundle)
+
+	byType := map[string]Message{}
+	for _, message := range messages {
+		byType[message.TypeName] = message
+	}
+	meta, ok := byType["aiserver.v1.RunInferencePromptModelMetadata"]
+	if !ok {
+		t.Fatalf("missing metadata message, got %#v", keysOf(byType))
+	}
+	field := fieldByName(meta.Fields, "agent_mode_configs")
+	if field == nil || !field.Repeated || field.T != "aiserver.v1.RunInferenceAgentModeConfig" {
+		t.Fatalf("agent_mode_configs: %#v", field)
+	}
+	ask := fieldByName(meta.Fields, "ask_question_config")
+	if ask == nil || !ask.Opt || ask.T != "aiserver.v1.RunInferenceAskQuestionConfig" {
+		t.Fatalf("ask_question_config: %#v", ask)
+	}
+	mode, ok := byType["aiserver.v1.RunInferenceAgentModeConfig"]
+	if !ok {
+		t.Fatal("missing RunInferenceAgentModeConfig")
+	}
+	if fieldByName(mode.Fields, "mode_id") == nil || fieldByName(mode.Fields, "enable_ask_question_tool") == nil {
+		t.Fatalf("mode config fields: %#v", mode.Fields)
+	}
+	result := fieldByName(byType["aiserver.v1.InferenceToolResultPart"].Fields, "result")
+	if result == nil || result.T != "google.protobuf.Value" {
+		t.Fatalf("result type: %#v", result)
+	}
+	labels := fieldByName(byType["aiserver.v1.RunInferenceRunReady"].Fields, "metric_labels")
+	if labels == nil || labels.Kind != "map" || labels.MapKey != 9 || labels.MapValueKind != "scalar" {
+		t.Fatalf("metric_labels: %#v", labels)
+	}
+
+	role := enumByName(enums, "aiserver.v1.InferenceMessageRole")
+	if role == nil || len(role.Values) != 5 || role.Values[1].Name != "INFERENCE_MESSAGE_ROLE_USER" {
+		t.Fatalf("unexpected role enum: %#v", role)
+	}
+	reason := enumByName(enums, "aiserver.v1.InferenceReason")
+	if reason == nil || reason.Values[1].Name != "INFERENCE_REASON_GEMINI_VIDEO_SUBAGENT" {
+		t.Fatalf("unexpected reason enum: %#v", reason)
+	}
+
+	if len(services) != 1 || services[0].TypeName != "aiserver.v1.InferenceService" {
+		t.Fatalf("unexpected services: %#v", services)
+	}
+	if services[0].Methods[2].OutputType != "google.protobuf.Empty" {
+		t.Fatalf("RecordEmpty output: %#v", services[0].Methods[2])
+	}
+}
+
+// TestValidateRequiredAgentShapesAcceptsRunInferenceModeConfig 验证 RunInference mode config 形状校验。
+func TestValidateRequiredAgentShapesAcceptsRunInferenceModeConfig(t *testing.T) {
+	const body = `
+message RunInferenceAgentModeConfig {
+  string mode_id = 1;
+  bool enable_ask_question_tool = 2;
+  optional RunInferenceSwitchModeToolConfig switch_mode_tool_config = 3;
+}
+message RunInferencePromptModelMetadata {
+  repeated RunInferenceAgentModeConfig agent_mode_configs = 46;
+  optional RunInferenceAskQuestionConfig ask_question_config = 48;
+}
+service InferenceService {
+  rpc RunInference(stream RunInferenceClientMessage) returns (stream RunInferenceServerMessage) {}
+  rpc RunInferenceSSE(BidiRequestId) returns (stream RunInferenceServerMessage) {}
+}
+`
+	if err := validateRequiredAgentShapes("aiserver_v1.proto", body); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCompactTypeIndexDoesNotLeakAcrossModules 验证跨模块同名变量按模块解析。
+func TestCompactTypeIndexDoesNotLeakAcrossModules(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["First|1 text 9"]}}
+class H extends B1 {static $(){return["Holder|1 child #0",T]}}
+},
+2:(e,t,n)=>{
+Q="aiserver.v1.";
+class B2 extends Base {static $p(){return Q}}
+class T extends B2 {static $(){return["Second|1 count 5"]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	if holder == nil {
+		t.Fatalf("missing agent.v1.Holder, got %#v", messages)
+	}
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.First" {
+		t.Fatalf("agent.v1.Holder.child = %#v, want agent.v1.First", child)
+	}
+}
+
+// TestCompactDuplicateDeclarationsReachCompletenessMerge 验证重复声明在解析后按 completeness 合并。
+func TestCompactDuplicateDeclarationsReachCompletenessMerge(t *testing.T) {
+	const bundle = `
+P="aiserver.v1.";
+class B extends Base {static $p(){return P}}
+class A extends B {static $(){return["Metadata|1 vendor 9"]}}
+class C extends B {static $(){return["Metadata|1 vendor 9|46 agent_mode_configs #0*",D]}}
+class D extends B {static $(){return["Mode|1 mode_id 9"]}}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	if countMessagesByType(messages, "aiserver.v1.Metadata") != 2 {
+		t.Fatalf("expected both Metadata declarations before merge, got %#v", messages)
+	}
+	merged := mergeMessagesByTypeName(messages)
+	metadata := messageByType(merged, "aiserver.v1.Metadata")
+	if metadata == nil || len(metadata.Fields) != 2 {
+		t.Fatalf("Metadata fields = %#v, want vendor + agent_mode_configs", metadata)
+	}
+	configs := fieldByName(metadata.Fields, "agent_mode_configs")
+	if configs == nil || !configs.Repeated || configs.T != "aiserver.v1.Mode" {
+		t.Fatalf("agent_mode_configs: %#v", configs)
+	}
+}
+
+// TestCompactDuplicateEnumsReachCompletenessMerge 验证重复枚举声明在解析后按 completeness 合并。
+func TestCompactDuplicateEnumsReachCompletenessMerge(t *testing.T) {
+	const bundle = `
+P="aiserver.v1.";
+Partial=enumType(proto3,P,"Role",[[0,"UNSPECIFIED"]],1);
+Complete=enumType(proto3,P,"Role",[[0,"UNSPECIFIED"],[1,"USER"],[2,"ASSISTANT"]],1);
+`
+	_, enums, _ := extractResolvedBundle(bundle)
+	if countEnumsByType(enums, "aiserver.v1.Role") != 2 {
+		t.Fatalf("expected both Role declarations before merge, got %#v", enums)
+	}
+	merged := mergeEnumsByTypeName(enums)
+	role := enumByName(merged, "aiserver.v1.Role")
+	if role == nil || len(role.Values) != 3 || role.Values[1].Name != "ROLE_USER" {
+		t.Fatalf("merged Role = %#v", role)
+	}
+}
+
+// TestCompactResolverPrefersSamePackageOverCrossPackageNamesakes 验证跨包同名类型优先当前包。
+func TestCompactResolverPrefersSamePackageOverCrossPackageNamesakes(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["Shared|1 local 9"]}}
+class H extends B1 {static $(){return["Holder|1 child #0",T]}}
+},
+2:(e,t,n)=>{
+Q="aiserver.v1.";
+class B2 extends Base {static $p(){return Q}}
+class T extends B2 {static $(){return["Shared|1 remote 5"]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.Shared" {
+		t.Fatalf("agent.v1.Holder.child = %#v, want agent.v1.Shared", child)
+	}
+}
+
+// TestCompactExportAliasResolvesImportedType 验证模块导出别名解析 compact 字段引用。
+func TestCompactExportAliasResolvesImportedType(t *testing.T) {
+	const bundle = `
+1:(e,t,n)=>{
+n.d(t,{KS:()=>T});
+P="agent.v1.";
+class B1 extends Base {static $p(){return P}}
+class T extends B1 {static $(){return["First|1 text 9"]}}
+},
+2:(e,t,n)=>{
+var r=n(1);
+Q="agent.v1.";
+class B2 extends Base {static $p(){return Q}}
+class H extends B2 {static $(){return["Holder|1 child #0",r.KS]}}
+}
+`
+	messages, _, _ := extractResolvedBundle(bundle)
+	holder := messageByType(messages, "agent.v1.Holder")
+	child := fieldByName(holder.Fields, "child")
+	if child == nil || child.T != "agent.v1.First" {
+		t.Fatalf("imported alias child = %#v, want agent.v1.First", child)
+	}
+}
+
+func keysOf(messages map[string]Message) []string {
+	names := make([]string, 0, len(messages))
+	for name := range messages {
+		names = append(names, name)
+	}
+	return names
+}
+
+func fieldByName(fields []Field, name string) *Field {
+	for i := range fields {
+		if fields[i].Name == name {
+			return &fields[i]
+		}
+	}
+	return nil
+}
+
+func enumByName(enums []Enum, typeName string) *Enum {
+	for i := range enums {
+		if enums[i].TypeName == typeName {
+			return &enums[i]
+		}
+	}
+	return nil
+}
+
+func messageByType(messages []Message, typeName string) *Message {
+	for i := range messages {
+		if messages[i].TypeName == typeName {
+			return &messages[i]
+		}
+	}
+	return nil
+}
+
+func countMessagesByType(messages []Message, typeName string) int {
+	count := 0
+	for _, message := range messages {
+		if message.TypeName == typeName {
+			count++
+		}
+	}
+	return count
+}
+
+func countEnumsByType(enums []Enum, typeName string) int {
+	count := 0
+	for _, enum := range enums {
+		if enum.TypeName == typeName {
+			count++
+		}
+	}
+	return count
 }
