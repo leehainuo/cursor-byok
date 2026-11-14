@@ -21,8 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
-    "@iconify/json": "^2.2.550",
-    "@iconify/react": "^6.0.3",
+    "@iconify/json": "^2.2.553",
+    "@iconify/react": "^6.0.4",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.7.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
@@ -55,7 +55,7 @@
     "cross-env": "^10.1.0",
     "sass": "^1.102.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.4",
+    "vite": "^8.3.6",
     "wait-on": "^9.0.1"
   },
   "overrides": {
